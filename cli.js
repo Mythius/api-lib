@@ -4,17 +4,6 @@ const readline = require('readline').createInterface({
     input: process.stdin,
     output: process.stdout
 });
-const out = function(s) {
-    console.log(s);
-}
-const input = function(q, c) {
-    readline.question(q + ' ', c);
-}
-const close = function() {
-    readline.question('Click ENTER to exit', e => {
-        readline.close();
-    });
-}
 const read = async function(q) {
     return new Promise(resolve => {
         readline.question(q, text => {
