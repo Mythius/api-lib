@@ -1,0 +1,73 @@
+const md5 = require('md5');
+const fs = require("fs");
+var file = {
+    save: function(name, text) {
+        fs.writeFile(name, text, (e) => {
+            if (e) console.log(e);
+        });
+    },
+    read: function(name, callback) {
+        fs.readFile(name, (error, buffer) => {
+            if (error) console.log(error);
+            else callback(buffer.toString());
+        });
+    },
+};
+const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+const out = function(s) {
+    console.log(s);
+}
+const input = function(q, c) {
+    readline.question(q + ' ', c);
+}
+const close = function() {
+    readline.question('Click ENTER to exit', e => {
+        readline.close();
+    });
+}
+const read = async function(q) {
+    return new Promise(resolve => {
+        readline.question(q, text => {
+            resolve(text);
+        });
+    });
+}
+
+async function main(){
+
+    let o = await read('What would you like to do?\n\t1. Create API user\n\tQ. Exit\n');
+    switch(o.toUpperCase()){
+        case '1': await createUser(); break;
+        case 'Q': exit(); return;
+        case 'EXIT': exit(); return;
+        default: console.log('Option not available'); break;
+    }
+    main();
+}
+
+async function createUser(){
+    let username = await read('Username: ');
+    let password = await read('Password: ');
+    let isAdmin = await read('Is Admin (y,n): ');
+    isAdmin = isAdmin.toLowerCase() == 'y' ? 1 : 0;
+    let p = new Promise((res,rej)=>{
+        file.read('auth.json',data=>{
+            let obj = JSON.parse(data);
+            obj[username] = {password:md5(password),priv:isAdmin,token:''};
+            file.save('auth.json',JSON.stringify(obj));
+            console.log('\nUser Created Successfully\n');
+            res();
+        });
+    });
+    await p;
+}
+
+function exit(){
+    console.log('Goodbye');
+    readline.close();
+}
+
+main();

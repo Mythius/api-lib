@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Website</title>
+	<script src="api.js"></script>
+</head>
+<body>
+	<p></p>
+	<script>
+
+		const $=q=>document.querySelector(q);
+
+		async function main(){
+			await login('admin','123');
+			let data = await request('/hello2');
+			$('p').innerHTML = data.message;
+		}
+
+		main();
+
+
+
+	</script>
+</body>
+</html>
