@@ -1,18 +1,5 @@
 const md5 = require('md5');
-const fs = require("fs");
-var file = {
-    save: function(name, text) {
-        fs.writeFile(name, text, (e) => {
-            if (e) console.log(e);
-        });
-    },
-    read: function(name, callback) {
-        fs.readFile(name, (error, buffer) => {
-            if (error) console.log(error);
-            else callback(buffer.toString());
-        });
-    },
-};
+const {file} = require('./file.js');
 const readline = require('readline').createInterface({
     input: process.stdin,
     output: process.stdout
@@ -56,6 +43,12 @@ async function createUser(){
     let p = new Promise((res,rej)=>{
         file.read('auth.json',data=>{
             let obj = JSON.parse(data);
+            obj[username] = {password:md5(password),priv:isAdmin,token:''};
+            file.save('auth.json',JSON.stringify(obj));
+            console.log('\nUser Created Successfully\n');
+            res();
+        },error=>{
+            let obj = {};
             obj[username] = {password:md5(password),priv:isAdmin,token:''};
             file.save('auth.json',JSON.stringify(obj));
             console.log('\nUser Created Successfully\n');

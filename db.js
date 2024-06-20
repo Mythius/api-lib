@@ -1,22 +1,7 @@
 // npm i mysql2 ssh2 csv-parse
 const mysql = require('mysql2');
 const { Client } = require('ssh2');
-var fs = require('fs');
-const parse = require('csv-parse').parse;
-
-var file = {
-    save: async function(name, text) {
-        await fs.writeFile(name, text, e => {
-            if (e) console.log(e);
-        })
-    },
-    read: function(name, callback) {
-        fs.readFile(name, (error, buffer) => {
-            if (error) console.log(error);
-            else callback(buffer.toString());
-        });
-    }
-}
+const {fs,file} = require('./file.js');
 
 const config = {
     host: '127.0.0.1',

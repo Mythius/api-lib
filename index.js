@@ -2,26 +2,12 @@ const port = 80;
 // npm i express path fs md5 body-parser express-fileupload
 const express = require("express");
 const path = require("path");
-const fs = require("fs");
 const md5 = require('md5');
 const bodyParser = require("body-parser");
 const fileUpload = require('express-fileupload');
 const app = express();
 const API = require('./api.js');
-
-var file = {
-    save: function(name, text) {
-        fs.writeFile(name, text, (e) => {
-            if (e) console.log(e);
-        });
-    },
-    read: function(name, callback) {
-        fs.readFile(name, (error, buffer) => {
-            if (error) console.log(error);
-            else callback(buffer.toString());
-        });
-    },
-};
+const {file,fs} = require('./file.js');
 
 
 app.use(bodyParser.json({ limit: '50mb' }));
@@ -35,12 +21,15 @@ let auth = {};
 let sessions = {};
 
 function loadAuth(){
-	return new Promise((res,rej)=>{
-		file.read('auth.json',e=>{
-			auth = JSON.parse(e);
-			res();
-		});
-	});
+    return new Promise((res,rej)=>{
+        file.read('auth.json',e=>{
+            auth = JSON.parse(e);
+            res();
+        },error=>{
+            file.save('auth.json','{}');
+            res();
+        });
+    });
 }
 
 function saveAuth(){
