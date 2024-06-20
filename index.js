@@ -61,6 +61,7 @@ app.post('/auth', async (req, res) => {
     	res.json({message:'Successfully Logged In',token});
     	delete sessions[auth[cred.username].token];
     	sessions[token] = {user:auth[cred.username]};
+        sessions[token].username = cred.username;
     	auth[cred.username].token = token;
     } else {
     	res.status(403).json({error:'Couldn\'t log in'});

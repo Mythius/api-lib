@@ -11,7 +11,7 @@ exports.public = function(app){
 exports.private = function(app){
 
 	app.get('/hello2',(req,res)=>{
-		res.json({message:"Hello World 2"})
+		res.json({message:"Hello "+req.session.username})
 	})
 
 }
