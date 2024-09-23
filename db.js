@@ -2,6 +2,7 @@
 const mysql = require('mysql2');
 const { Client } = require('ssh2');
 const {fs,file} = require('./file.js');
+const { parse } = require('csv-parse');
 
 const config = {
     host: '127.0.0.1',
@@ -135,6 +136,16 @@ function saveCSV(name, data, delimiter = ',') {
     file.save(name, data.map(e => e.join(delimiter)).join('\n'));
 }
 
+function loadCSV(path,delimiter=','){
+    return new Promise((res,rej) => {
+        file.read(path,data=>{
+            parseCSVdata(data,delimiter).then(alldata=>{
+                res(alldata);
+            });
+        })
+    });
+}
+
 function loadSQL(filename) {
     return new Promise((res, rej) => {
         file.read(filename, data => {
@@ -222,3 +233,4 @@ exports.queryToCSV = queryToCSV;
 exports.loadSQL = loadSQL;
 exports.saveCSV = saveCSV;
 exports.file = file;
+exports.loadCSV = loadCSV;
