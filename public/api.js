@@ -1,4 +1,4 @@
-var auth_token = 'empty';
+var auth_token = localStorage.getItem('auth_token');
 async function login(username, password) {
     let authorization = JSON.stringify({ username, password });
     let req = await fetch('/auth', { method: 'POST', headers: { authorization } });
@@ -40,5 +40,6 @@ async function loginGoogle(data){
     let req = await fetch('/google-signin',{method:'POST',headers:{authorization}});
     let dat = await req.json();
     auth_token = dat.token;
+    localStorage.setItem('auth_token',auth_token);
     return JSON.stringify(dat);
 }
