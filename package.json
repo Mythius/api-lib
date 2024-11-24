@@ -5,6 +5,7 @@
     "express-fileupload": "^1.5.1",
     "fs": "^0.0.1-security",
     "md5": "^2.3.0",
+    "mongodb": "^6.10.0",
     "path": "^0.12.7"
   }
 }
