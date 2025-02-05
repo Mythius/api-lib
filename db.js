@@ -1,8 +1,8 @@
-// npm i mysql2 ssh2 csv-parse
+// npm i mysql2 ssh2 csv-reader
 const mysql = require("mysql2");
 const { Client } = require("ssh2");
 const { fs, file } = require("./file.js");
-const { parse } = require("csv-parse");
+const CsvReader = require("csv-reader");
 
 const config = {
   host: "127.0.0.1",
@@ -81,31 +81,6 @@ function sshQuery(host, db, query) {
   });
 }
 
-function parseCSVdata(data, delimiter = ",") {
-  return new Promise((res, rej) => {
-    parse(
-      data,
-      {
-        trim: true,
-        columns: false,
-        quote: '"', // Field can be enclosed in double quotes
-        escape: '"', // Embedded quotes are escaped with another quote
-        delimiter,
-        relax_quotes: false, // Allows leniency with quotes inside quoted fields
-        relax_column_count: false, // Lenient on column count mismatch
-      },
-      (e, r) => {
-        if (e) {
-          console.error(e);
-          rej(e);
-        } else {
-          res(r);
-        }
-      }
-    );
-  });
-}
-
 function uploadCSV(path, host, db, table, delimiter = ",") {
   return new Promise((res, rej) => {
     file.read(path, (data) => {
@@ -176,12 +151,31 @@ function saveCSV(filename, CSV, delimiter = ",") {
   file.save(filename, escapedCSV);
 }
 
-function loadCSV(path, delimiter = ",") {
-  return new Promise((res, rej) => {
-    file.read(path, (data) => {
-      parseCSVdata(data, delimiter).then((alldata) => {
-        res(alldata);
-      });
+async function loadCSV(filePath) {
+  return new Promise((resolve, reject) => {
+    let rows = [];
+
+    const inputStream = fs
+      .createReadStream(filePath, "utf8")
+      .pipe(
+        new CsvReader({
+          parseNumbers: false,
+          parseBooleans: false,
+          trim: true,
+          delimiter: ",",
+        })
+      );
+
+    inputStream.on("data", (row) => {
+      rows.push(row);
+    });
+
+    inputStream.on("end", () => {
+      resolve(rows);
+    });
+
+    inputStream.on("error", (error) => {
+      reject(error);
     });
   });
 }
