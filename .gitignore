@@ -1,3 +1,4 @@
 node_modules/*
 auth.json
 package-lock.json
+google/*.json
