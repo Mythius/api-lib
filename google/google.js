@@ -4,7 +4,7 @@
 // Application Type: Desktop Client
 // download JSON save as google/credentials.json
 // Add to package.json scripts:
-// "auth": "node google/authorize.js del"
+// "auth": "node google/google.js del"
 const fsp = require("fs").promises;
 const fs = require("fs");
 const path = require("path");
@@ -167,7 +167,33 @@ async function exportPresentation(fileId, name, type = "pptx") {
   }
 }
 
+async function downloadImage(fileId, name) {
+  let auth = await login();
+  const service = google.drive({ version: "v3", auth });
+
+  const dest = fs.createWriteStream(name);
+
+  try {
+    const response = await service.files.get(
+      { fileId, alt: "media" },
+      { responseType: "stream" }
+    );
+
+    response.data.pipe(dest);
+
+    return new Promise((resolve, reject) => {
+      dest.on("finish", () => resolve(`File ${name} downloaded successfully`));
+      dest.on("error", reject);
+    });
+  } catch (error) {
+    console.error("Error downloading image:", error);
+    throw error;
+  }
+}
+
+
 exports.login = login;
 exports.google = google;
 exports.callAppsScriptFunction = callAppsScriptFunction;
 exports.exportPresentation = exportPresentation;
+exports.downloadImage = downloadImage;
