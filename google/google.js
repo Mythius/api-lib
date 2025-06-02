@@ -4,7 +4,7 @@
 // Application Type: Desktop Client
 // download JSON save as google/credentials.json
 // Add to package.json scripts:
-// "auth": "node google/authorize.js del"
+// "auth": "node google/google.js del"
 const fsp = require("fs").promises;
 const fs = require("fs");
 const path = require("path");
