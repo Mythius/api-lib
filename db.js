@@ -1,8 +1,8 @@
-// npm i mysql2 ssh2 csv-reader
+// npm i mysql2 ssh2 csv-parse
 const mysql = require("mysql2");
 const { Client } = require("ssh2");
 const { fs, file } = require("./file.js");
-const CsvReader = require("csv-reader");
+const { parse } = require("csv-parse");
 
 const config = {
   host: "127.0.0.1",
@@ -11,20 +11,27 @@ const config = {
   port: 3306,
 };
 
-function sshQuery(host, db, query) {
+const ssh_config = {
+  host: "msouthwick.com",
+  user: "matthias",
+  password: "",
+  port: 22,
+}
+
+function sshQuery( db, query, values = []) {
   return new Promise((res, rej) => {
     var dbServer = {
-      host: host,
+      host: `localhost`,
       port: config.port,
       user: config.user,
       password: config.password,
       database: db,
     };
     var tunnelConfig = {
-      host: config.host,
-      port: 22,
-      username: config.user,
-      password: config.password,
+      host: ssh_config.host,
+      port: ssh_config.port,
+      username: ssh_config.user,
+      password: ssh_config.password,
     };
     var forwardConfig = {
       srcHost: config.host,
@@ -32,11 +39,6 @@ function sshQuery(host, db, query) {
       dstHost: dbServer.host,
       dstPort: dbServer.port,
     };
-    if (query.includes("--")) {
-      rej("SQL INJECTION, only execute 1 query at a time");
-      console.error("SQL Rejected (Detected Injection)");
-      return;
-    }
     const sshClient = new Client();
     const SSHConnection = new Promise((resolve, reject) => {
       sshClient
@@ -63,10 +65,12 @@ function sshQuery(host, db, query) {
           );
         })
         .connect(tunnelConfig);
+
+        
     });
     SSHConnection.then((connection) => {
       // console.log(connection);
-      connection.query(query, function (err, results, fields) {
+      connection.query(query, values, function (err, results, fields) {
         if (err) {
           console.log(err);
         } else {
@@ -81,7 +85,32 @@ function sshQuery(host, db, query) {
   });
 }
 
-function uploadCSV(path, host, db, table, delimiter = ",") {
+function parseCSVdata(data, delimiter = ",") {
+  return new Promise((res, rej) => {
+    parse(
+      data,
+      {
+        trim: true,
+        columns: false,
+        quote: '"', // Field can be enclosed in double quotes
+        escape: '"', // Embedded quotes are escaped with another quote
+        delimiter,
+        relax_quotes: false, // Allows leniency with quotes inside quoted fields
+        relax_column_count: false, // Lenient on column count mismatch
+      },
+      (e, r) => {
+        if (e) {
+          console.error(e);
+          rej(e);
+        } else {
+          res(r);
+        }
+      }
+    );
+  });
+}
+
+function uploadCSV(path, db, table, delimiter = ",") {
   return new Promise((res, rej) => {
     file.read(path, (data) => {
       parseCSVdata(data, delimiter).then((alldata) => {
@@ -110,9 +139,9 @@ function uploadCSV(path, host, db, table, delimiter = ",") {
   });
 }
 
-function queryToCSV(host, db, query, filename, delimiter = ",") {
+function queryToCSV(db, query, values, filename, delimiter = ",") {
   return new Promise((res, rej) => {
-    q(host, db, query).then((result) => {
+    q(db, query, values).then((result) => {
       let CSV = [];
       if (!result || !result[0]) {
         res([]);
@@ -151,31 +180,12 @@ function saveCSV(filename, CSV, delimiter = ",") {
   file.save(filename, escapedCSV);
 }
 
-async function loadCSV(filePath) {
-  return new Promise((resolve, reject) => {
-    let rows = [];
-
-    const inputStream = fs
-      .createReadStream(filePath, "utf8")
-      .pipe(
-        new CsvReader({
-          parseNumbers: false,
-          parseBooleans: false,
-          trim: true,
-          delimiter: ",",
-        })
-      );
-
-    inputStream.on("data", (row) => {
-      rows.push(row);
-    });
-
-    inputStream.on("end", () => {
-      resolve(rows);
-    });
-
-    inputStream.on("error", (error) => {
-      reject(error);
+function loadCSV(path, delimiter = ",") {
+  return new Promise((res, rej) => {
+    file.read(path, (data) => {
+      parseCSVdata(data, delimiter).then((alldata) => {
+        res(alldata);
+      });
     });
   });
 }
@@ -188,7 +198,7 @@ function loadSQL(filename) {
   });
 }
 
-function normalQuery(host, db, query) {
+function normalQuery(db, query, values = []) {
   return new Promise((res, rej) => {
     const connection = mysql.createConnection({
       ...config,
@@ -199,14 +209,13 @@ function normalQuery(host, db, query) {
         rej(err);
         return;
       }
-      connection.query(query, function (err, results, fields) {
+      connection.query(query, values, function (err, results, fields) {
         if (err) {
-          // console.log(err);
           rej(err);
         } else {
           res(results);
-          connection.end();
         }
+        connection.end();
       });
     });
   });
@@ -219,39 +228,8 @@ function setQueryMode(type = "normal") {
   } else if (type == "normal") {
     q = normalQuery;
     exports.query = normalQuery;
-  } else if (type == "snowflake") {
-    q = function (u1, u2, qry) {
-      return SF.query(qry);
-    };
-  } else if (type == "pg") {
-    q = postGresQuery;
   }
   exports.query = q;
-}
-
-function postGresQuery(host, db, query) {
-  return new Promise((res, rej) => {
-    const client = new pgClient({
-      user: login["elevate-username"],
-      host: login["elevate-host"],
-      database: db,
-      password: login["elevate-password"],
-      port: 3306, // Default PostgreSQL port
-    });
-    client.connect().then((_) => {
-      client.query(query, (err, result) => {
-        if (err) {
-          console.log("Error");
-          rej(err);
-          return;
-        } else {
-          console.log("success");
-          res(result.rows);
-        }
-        client.end();
-      });
-    });
-  });
 }
 
 var q = normalQuery;
@@ -265,3 +243,4 @@ exports.loadSQL = loadSQL;
 exports.saveCSV = saveCSV;
 exports.file = file;
 exports.loadCSV = loadCSV;
+exports.ssh_config = ssh_config;
