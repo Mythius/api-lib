@@ -1,6 +1,6 @@
 const port = 80;
 const google_client_id = '1016767921529-7km6ac8h3cud3256dqjqha6neiufn2om.apps.googleusercontent.com';
-// npm i express path fs md5 body-parser express-fileupload google-auth-library
+// npm i express path fs md5 body-parser express-fileupload google-auth-library dotenv
 const express = require("express");
 const path = require("path");
 const md5 = require('md5');
@@ -11,6 +11,7 @@ const API = require('./api.js');
 const { file, fs } = require('./file.js');
 const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(google_client_id);
+require('dotenv').config({quiet:true});
 
 
 app.use(bodyParser.json({ limit: '50mb' }));
