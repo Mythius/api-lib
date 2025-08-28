@@ -89,6 +89,11 @@ function saveAuth() {
   file.save("auth.json", JSON.stringify(auth));
 }
 
+function loginCallback(session){
+  saveAuth();
+  if(API.onLogin) API.onLogin(session);
+}
+
 app.post("/auth", async (req, res) => {
   try {
     const cred = req.body;
@@ -128,13 +133,114 @@ app.post("/google-signin", async (req, res) => {
     let token = md5(new Date().toISOString() + cred.email);
     sessions[token] = { user: auth[cred.email] };
     sessions[token].username = cred.name;
+    sessions[token].email = data.email;
     sessions[token].google_data = data;
+    sessions[token].photoUrl = data.picture;
     auth[cred.email].token = token;
-    saveAuth();
+    loginCallback(sessions[token]);
     res.status(200).json({ message: "Successfully Logged In", token });
   } catch (e) {
     console.error(e);
     res.status(403).json({ error: "Invalid Google Login" });
+  }
+});
+
+const MS_AUTH_URL =
+  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+const MS_TOKEN_URL =
+  "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+const MS_GRAPH_URL = "https://graph.microsoft.com/v1.0/me";
+
+// Step 1: Generate Microsoft Login URL
+app.get("/microsoft-signin", (req, res) => {
+  const params = new URLSearchParams({
+    client_id: process.env.MS_CLIENT_ID,
+    response_type: "code",
+    redirect_uri: process.env.MS_REDIRECT_URI,
+    response_mode: "query",
+    scope: "openid profile email User.Read",
+  });
+  res.redirect(`${MS_AUTH_URL}?${params}`);
+});
+
+app.get("/microsoft-callback", async (req, res) => {
+  const code = req.query.code;
+  if (!code) {
+    return res.status(400).json({ error: "Missing authorization code" });
+  }
+
+  try {
+    // Exchange code for tokens
+    const tokenResponse = await fetch(MS_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.MS_CLIENT_ID,
+        client_secret: process.env.MS_CLIENT_SECRET,
+        code,
+        redirect_uri: process.env.MS_REDIRECT_URI,
+        grant_type: "authorization_code",
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (tokenData.error) {
+      console.error("Token exchange failed:", tokenData);
+      return res.status(401).json({ error: "Failed to fetch token" });
+    }
+
+    const { access_token, id_token } = tokenData;
+
+    // Fetch user profile
+    const profileResponse = await fetch(MS_GRAPH_URL, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    const profile = await profileResponse.json();
+
+    if (!profile.mail && !profile.userPrincipalName) {
+      return res.status(400).json({ error: "Failed to retrieve user profile" });
+    }
+
+    const email = profile.mail || profile.userPrincipalName;
+    const name = profile.displayName || email;
+
+    // Fetch profile photo
+    // let photoUrl = null;
+    // try {
+    //   const photoResponse = await fetch(`${MS_GRAPH_URL}/photo/$value`, {
+    //     headers: { Authorization: `Bearer ${access_token}` },
+    //   });
+
+    //   if (photoResponse.ok) {
+    //     const arrayBuffer = await photoResponse.arrayBuffer();
+    //     photoUrl = `data:image/jpeg;base64,${Buffer.from(arrayBuffer).toString(
+    //       "base64"
+    //     )}`;
+    //   }
+    // } catch (err) {
+    //   console.warn("No profile photo available for user:", email);
+    // }
+
+    if (!(email in auth)) {
+      auth[email] = { priv: 0, token: "" };
+    }
+    if (auth[email].token) delete sessions[auth[email].token];
+
+    const token = md5(new Date().toISOString() + email);
+    sessions[token] = {
+      user: auth[email],
+      username: name,
+      microsoft_data: profile,
+      email,
+      // photoUrl,
+    };
+    auth[email].token = token;
+    loginCallback(sessions[token]);
+    console.log("Microsoft login succeeded");
+    res.redirect(`/?token=${token}`);
+  } catch (error) {
+    console.error("Microsoft Sign-In error:", error);
+    res.status(500).json({ error: "Microsoft authentication failed" });
   }
 });
 
@@ -144,7 +250,7 @@ app.use(function (req, res, next) {
   if (!req.headers.authorization)
     return res.status(403).json({ error: "No credentials Sent" });
   let token = req.headers.authorization;
-  if(token.match(' ')) token = token.split(' ')[1];
+  if (token.match(" ")) token = token.split(" ")[1];
   if (!(token in sessions))
     return res.status(403).json({ error: "Invalid Token" });
   req.session = sessions[token];

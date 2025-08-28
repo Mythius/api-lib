@@ -54,3 +54,26 @@ async function loginGoogle(data) {
   localStorage.setItem("auth_token", auth_token);
   return JSON.stringify(dat);
 }
+
+function microsoftAuth() {
+  window.location.href = "/microsoft-signin";
+}
+
+async function loginMicrosoft() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get("token");
+
+  if (!token) {
+    console.warn("No Microsoft auth token found in URL.");
+    return null;
+  }
+
+  auth_token = token;
+  localStorage.setItem("auth_token", auth_token);
+  window.history.pushState(
+    { page: "Home" },
+    "Home",
+    "/"
+  );
+}
+if (window.location.href.match("token")) loginMicrosoft();
