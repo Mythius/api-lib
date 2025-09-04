@@ -117,3 +117,51 @@
  *       403:
  *         description: Not authorized to create a user.
  */
+
+
+/**
+ * @swagger
+ * /google-signin:
+ *   post:
+ *     summary: Authenticate a user via Google Sign-In and return an access token.
+ *     tags:
+ *       - Authentication
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               credential:
+ *                 type: string
+ *                 description: Google ID token.
+ *                 example: eyJhbGciOiJSUzI1NiIsImtpZCI6IjA...
+ *               email:
+ *                 type: string
+ *                 example: johndoe@example.com
+ *               name:
+ *                 type: string
+ *                 example: John Doe
+ *     responses:
+ *       200:
+ *         description: Successfully logged in.
+ *       403:
+ *         description: Invalid Google login.
+ */
+
+/**
+ * @swagger
+ * /auth:
+ *   delete:
+ *     summary: Logs Out of account
+ *     tags:
+ *       - Authentication
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User Logged Out
+ *       403:
+ *         description: Not authorized to create a user.
+ */
