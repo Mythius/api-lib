@@ -89,9 +89,9 @@ function saveAuth() {
   file.save("auth.json", JSON.stringify(auth));
 }
 
-function loginCallback(session){
+function loginCallback(session) {
   saveAuth();
-  if(API.onLogin) API.onLogin(session);
+  if (API.onLogin) API.onLogin(session);
 }
 
 app.post("/auth", async (req, res) => {
@@ -255,6 +255,23 @@ app.use(function (req, res, next) {
     return res.status(403).json({ error: "Invalid Token" });
   req.session = sessions[token];
   next();
+});
+
+app.delete("/auth", (req, res) => {
+  const token =
+    req.headers.authorization && req.headers.authorization.split(" ").length > 1
+      ? req.headers.authorization.split(" ")[1]
+      : req.headers.authorization;
+  if (!token || !(token in sessions)) {
+    return res.status(403).json({ error: "Invalid Token" });
+  }
+  const username = sessions[token].username || sessions[token].email;
+  if (username && auth[username]) {
+    auth[username].token = "";
+    saveAuth();
+  }
+  delete sessions[token];
+  res.json({ message: "Logged out successfully" });
 });
 
 // TEST with: request('/newuser',{method:'POST',body:JSON.stringify({username:'user2',password:'123456'})});
