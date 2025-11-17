@@ -1,6 +1,5 @@
-// npm i nodemailer nodemailer-smtp-transport
+// npm i nodemailer
 var nodemailer = require("nodemailer");
-var smtpTransport = require("nodemailer-smtp-transport");
 const fs = require("fs");
 const LOG = true;
 
