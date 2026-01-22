@@ -12,7 +12,9 @@
 </head>
 <body>
 	<p></p>
-	<button onclick="signInButton()">Sign in</button>
+	<button onclick="googleAuth()">Google One Click</button>
+	<button id="ms" onclick="googleOAuth()">Google Auth</button>
+	<button id="google" onclick="microsoftOAuth()">Microsoft Auth</button>
 	<script>
 
 		const $=q=>document.querySelector(q);
@@ -22,14 +24,7 @@
 			$('p').innerHTML = data.message;
 		}
 
-		async function signInButton(){
-			let data = await googleAuth();
-			let token = await data.loginSuccess;
-			await main();
-			console.log(token);
-		}
-
-		// main();
+		main();
 
 
 

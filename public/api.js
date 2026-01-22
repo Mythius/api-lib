@@ -1,24 +1,23 @@
-var auth_token = localStorage.getItem("auth_token");
 async function login(username, password) {
-  let authorization = { username, password };
   let req = await fetch("/auth", {
     method: "POST",
     headers: { "Content-type": "application/json" },
-    body: JSON.stringify(authorization),
+    body: JSON.stringify({ username, password }),
+    credentials: "include",
   });
-  let dat = await req.json();
-  auth_token = dat.token;
-  return JSON.stringify(dat);
+  return await req.json();
 }
+
 async function request(url, data = {}) {
   if (!data.method) data.method = "GET";
   if (!data.headers) data.headers = {};
   if (!data.headers["Content-Type"])
     data.headers["Content-Type"] = "application/json";
-  if (!data.headers.authorization) data.headers.authorization = auth_token;
+  data.credentials = "include";
   let req = await fetch(url, data);
   return await req.json();
 }
+
 function googleAuth() {
   return new Promise((res, rej) => {
     google.accounts.id.initialize({
@@ -42,38 +41,30 @@ function googleAuth() {
     }
   });
 }
+
 async function loginGoogle(data) {
-  let authorization = JSON.stringify(data);
-  let req = await fetch("/google-signin", {
+  let req = await fetch("/auth/google-oneclick", {
     method: "POST",
     headers: { "Content-type": "application/json" },
-    body: authorization,
+    body: JSON.stringify(data),
+    credentials: "include",
   });
-  let dat = await req.json();
-  auth_token = dat.token;
-  localStorage.setItem("auth_token", auth_token);
-  return JSON.stringify(dat);
+  return await req.json();
 }
 
-function microsoftAuth() {
-  window.location.href = "/microsoft-signin";
+// Redirect-based OAuth (works when third-party cookies are blocked)
+function googleOAuth() {
+  window.location.href = "/auth/google";
 }
 
-async function loginMicrosoft() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get("token");
-
-  if (!token) {
-    console.warn("No Microsoft auth token found in URL.");
-    return null;
-  }
-
-  auth_token = token;
-  localStorage.setItem("auth_token", auth_token);
-  window.history.pushState(
-    { page: "Home" },
-    "Home",
-    "/"
-  );
+function microsoftOAuth() {
+  window.location.href = "/auth/microsoft";
 }
-if (window.location.href.match("token")) loginMicrosoft();
+
+async function logout() {
+  let req = await fetch("/auth", {
+    method: "DELETE",
+    credentials: "include",
+  });
+  return await req.json();
+}

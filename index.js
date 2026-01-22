@@ -1,55 +1,47 @@
-const port = 80;
+require("dotenv").config({ quiet: true });
+const port = process.env.PORT || 80;
 const google_client_id =
-  "1016767921529-7km6ac8h3cud3256dqjqha6neiufn2om.apps.googleusercontent.com";
-// npm i express path fs md5 body-parser express-fileupload google-auth-library dotenv swagger-ui-express swagger-jsdoc
+  "1016767921529-6ht5kllaqo7627qcb9p7fv7vilc66aos.apps.googleusercontent.com";
+const google_client_secret = process.env.GOOGLE_CLIENT_SECRET || "";
+const google_redirect_uri =
+  process.env.GOOGLE_REDIRECT_URI || `http://localhost:${port}/auth/callback/google`;
+// npm i express path fs md5 body-parser express-fileupload google-auth-library dotenv cookie-parser
 const express = require("express");
 const path = require("path");
 const md5 = require("md5");
 const bodyParser = require("body-parser");
 const fileUpload = require("express-fileupload");
+const cookieParser = require("cookie-parser");
 const app = express();
 const API = require("./api.js");
-const { file, fs } = require("./file.js");
+const { file, fs } = require("./tools/file.js");
 const { OAuth2Client } = require("google-auth-library");
 const client = new OAuth2Client(google_client_id);
-require("dotenv").config({ quiet: true });
-const swaggerUi = require("swagger-ui-express");
-const swaggerJsDoc = require("swagger-jsdoc");
+// Separate OAuth client for redirect-based flow (requires client secret)
+const oauthClient = new OAuth2Client(
+  google_client_id,
+  google_client_secret,
+  google_redirect_uri,
+);
+const exposeEndpoints = require("./tools/listEndpoints.js").expose;
 
-const swaggerOptions = {
-  swaggerDefinition: {
-    openapi: "3.0.0", // or '2.0' for Swagger 2.0
-    info: {
-      title: "Application API",
-      version: "1.0.0",
-      description: "API documentation for my Express application",
-    },
-    components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          bearerFormat: "JWT", // shows 'Bearer' in Swagger UI
-        },
-      },
-    },
-    security: [
-      {
-        bearerAuth: [],
-      },
-    ],
-  },
-  apis: ["swagger/*.js"],
-};
-const swaggerDocs = swaggerJsDoc(swaggerOptions);
-
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+app.use(cookieParser());
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 app.use(
-  fileUpload({ limits: { fileSize: 50000000 /*50 MB*/ }, abortOnLimit: true })
+  fileUpload({ limits: { fileSize: 50000000 /*50 MB*/ }, abortOnLimit: true }),
 );
 app.use(express.static(path.join(__dirname, "public")));
+
+// Helper to set auth cookie
+function setAuthCookie(res, token) {
+  res.cookie("auth_token", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  });
+}
 app.listen(port, () => {
   console.log(`Server is listening at http://localhost:${port}`);
 });
@@ -80,7 +72,7 @@ function loadAuth() {
       (error) => {
         file.save("auth.json", "{}");
         res();
-      }
+      },
     );
   });
 }
@@ -94,6 +86,8 @@ function loginCallback(session) {
   if (API.onLogin) API.onLogin(session);
 }
 
+exposeEndpoints(app);
+
 app.post("/auth", async (req, res) => {
   try {
     const cred = req.body;
@@ -106,11 +100,12 @@ app.post("/auth", async (req, res) => {
     }
     if (md5(cred.password) == auth[cred.username].password) {
       let token = md5(new Date().toISOString() + cred.username);
-      res.json({ message: "Successfully Logged In", token });
       delete sessions[auth[cred.username].token];
       sessions[token] = { user: auth[cred.username] };
       sessions[token].username = cred.username;
       auth[cred.username].token = token;
+      setAuthCookie(res, token);
+      res.json({ message: "Successfully Logged In" });
     } else {
       res.status(403).json({ error: "Couldn't log in" });
       return;
@@ -121,7 +116,7 @@ app.post("/auth", async (req, res) => {
   }
 });
 
-app.post("/google-signin", async (req, res) => {
+app.post("/auth/google-oneclick", async (req, res) => {
   console.log("google sign in request recieved");
   try {
     let cred = req.body;
@@ -138,10 +133,98 @@ app.post("/google-signin", async (req, res) => {
     sessions[token].photoUrl = data.picture;
     auth[cred.email].token = token;
     loginCallback(sessions[token]);
-    res.status(200).json({ message: "Successfully Logged In", token });
+    setAuthCookie(res, token);
+    res.status(200).json({ message: "Successfully Logged In" });
   } catch (e) {
     console.error(e);
     res.status(403).json({ error: "Invalid Google Login" });
+  }
+});
+
+// Helper to check Google OAuth redirect environment variables
+function checkGoogleOAuthEnvVars() {
+  const required = ["GOOGLE_CLIENT_SECRET"];
+  const missing = required.filter((key) => !process.env[key]);
+  return missing;
+}
+
+// Google OAuth 2.0 redirect-based flow (works when third-party cookies are blocked)
+app.get("/auth/google", (req, res) => {
+  const missing = checkGoogleOAuthEnvVars();
+  if (missing.length > 0) {
+    return res.status(503).json({
+      error: "Google OAuth redirect flow not configured",
+      message: `Missing environment variables: ${missing.join(", ")}`,
+      hint: "Add GOOGLE_CLIENT_SECRET to your .env file. Optionally set GOOGLE_REDIRECT_URI (defaults to http://localhost:{PORT}/auth/callback/google)",
+    });
+  }
+
+  const authUrl = oauthClient.generateAuthUrl({
+    access_type: "offline",
+    scope: [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ],
+    prompt: "select_account",
+    redirect_uri: google_redirect_uri,
+  });
+  res.redirect(authUrl);
+});
+
+// Google OAuth 2.0 callback endpoint
+app.get("/auth/callback/google", async (req, res) => {
+  const missing = checkGoogleOAuthEnvVars();
+  if (missing.length > 0) {
+    return res.status(503).json({
+      error: "Google OAuth redirect flow not configured",
+      message: `Missing environment variables: ${missing.join(", ")}`,
+      hint: "Add GOOGLE_CLIENT_SECRET to your .env file. Optionally set GOOGLE_REDIRECT_URI (defaults to http://localhost:{PORT}/auth/callback/google)",
+    });
+  }
+
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).json({ error: "Authorization code not provided" });
+  }
+
+  try {
+    // Exchange authorization code for tokens
+    const { tokens } = await oauthClient.getToken({
+      code,
+      redirect_uri: google_redirect_uri,
+    });
+    oauthClient.setCredentials(tokens);
+
+    // Verify the ID token and get user info
+    const ticket = await oauthClient.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: google_client_id,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const name = payload.name;
+
+    // Create or update user session
+    if (!(email in auth)) {
+      auth[email] = { priv: 0, token: "" };
+    }
+    if (auth[email].token) delete sessions[auth[email].token];
+
+    let token = md5(new Date().toISOString() + email);
+    sessions[token] = { user: auth[email] };
+    sessions[token].username = name;
+    sessions[token].email = email;
+    sessions[token].google_data = payload;
+    sessions[token].photoUrl = payload.picture;
+    auth[email].token = token;
+    loginCallback(sessions[token]);
+
+    setAuthCookie(res, token);
+    res.redirect("/");
+  } catch (error) {
+    console.error("Google OAuth callback error:", error);
+    res.status(500).json({ error: "Google authentication failed" });
   }
 });
 
@@ -151,8 +234,24 @@ const MS_TOKEN_URL =
   "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const MS_GRAPH_URL = "https://graph.microsoft.com/v1.0/me";
 
+// Helper to check Microsoft OAuth environment variables
+function checkMicrosoftEnvVars() {
+  const required = ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"];
+  const missing = required.filter((key) => !process.env[key]);
+  return missing;
+}
+
 // Step 1: Generate Microsoft Login URL
-app.get("/microsoft-signin", (req, res) => {
+app.get("/auth/microsoft", (req, res) => {
+  const missing = checkMicrosoftEnvVars();
+  if (missing.length > 0) {
+    return res.status(503).json({
+      error: "Microsoft OAuth not configured",
+      message: `Missing environment variables: ${missing.join(", ")}`,
+      hint: "Add these variables to your .env file to enable Microsoft login",
+    });
+  }
+
   const params = new URLSearchParams({
     client_id: process.env.MS_CLIENT_ID,
     response_type: "code",
@@ -163,7 +262,16 @@ app.get("/microsoft-signin", (req, res) => {
   res.redirect(`${MS_AUTH_URL}?${params}`);
 });
 
-app.get("/microsoft-callback", async (req, res) => {
+app.get("/auth/callback/microsoft", async (req, res) => {
+  const missing = checkMicrosoftEnvVars();
+  if (missing.length > 0) {
+    return res.status(503).json({
+      error: "Microsoft OAuth not configured",
+      message: `Missing environment variables: ${missing.join(", ")}`,
+      hint: "Add these variables to your .env file to enable Microsoft login",
+    });
+  }
+
   const code = req.query.code;
   if (!code) {
     return res.status(400).json({ error: "Missing authorization code" });
@@ -237,7 +345,8 @@ app.get("/microsoft-callback", async (req, res) => {
     auth[email].token = token;
     loginCallback(sessions[token]);
     console.log("Microsoft login succeeded");
-    res.redirect(`/?token=${token}`);
+    setAuthCookie(res, token);
+    res.redirect("/");
   } catch (error) {
     console.error("Microsoft Sign-In error:", error);
     res.status(500).json({ error: "Microsoft authentication failed" });
@@ -247,10 +356,13 @@ app.get("/microsoft-callback", async (req, res) => {
 API.public(app);
 
 app.use(function (req, res, next) {
-  if (!req.headers.authorization)
-    return res.status(403).json({ error: "No credentials Sent" });
-  let token = req.headers.authorization;
-  if (token.match(" ")) token = token.split(" ")[1];
+  // Check cookie first, then fall back to Authorization header
+  let token = req.cookies.auth_token;
+  if (!token && req.headers.authorization) {
+    token = req.headers.authorization;
+    if (token.match(" ")) token = token.split(" ")[1];
+  }
+  if (!token) return res.status(403).json({ error: "No credentials Sent" });
   if (!(token in sessions))
     return res.status(403).json({ error: "Invalid Token" });
   req.session = sessions[token];
@@ -258,10 +370,14 @@ app.use(function (req, res, next) {
 });
 
 app.delete("/auth", (req, res) => {
-  const token =
-    req.headers.authorization && req.headers.authorization.split(" ").length > 1
-      ? req.headers.authorization.split(" ")[1]
-      : req.headers.authorization;
+  // Check cookie first, then fall back to Authorization header
+  let token = req.cookies.auth_token;
+  if (!token && req.headers.authorization) {
+    token =
+      req.headers.authorization.split(" ").length > 1
+        ? req.headers.authorization.split(" ")[1]
+        : req.headers.authorization;
+  }
   if (!token || !(token in sessions)) {
     return res.status(403).json({ error: "Invalid Token" });
   }
@@ -271,6 +387,7 @@ app.delete("/auth", (req, res) => {
     saveAuth();
   }
   delete sessions[token];
+  res.clearCookie("auth_token");
   res.json({ message: "Logged out successfully" });
 });
 
