@@ -8,7 +8,7 @@ exports.public = function (app) {
 exports.private = function (app) {
   app.get("/hello2", (req, res) => {
     res.json({
-      message: "Hello " + req.session.google_data.given_name,
+      message: "Hello " + req.session.username,
     });
   });
 };

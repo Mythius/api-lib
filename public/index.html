@@ -13,8 +13,9 @@
 <body>
 	<p></p>
 	<button onclick="googleAuth()">Google One Click</button>
-	<button id="ms" onclick="googleOAuth()">Google Auth</button>
-	<button id="google" onclick="microsoftOAuth()">Microsoft Auth</button>
+	<button onclick="googleOAuth()">Google Auth</button>
+	<button onclick="microsoftOAuth()">Microsoft Auth</button>
+	<button onclick="lg()">Logout</button>
 	<script>
 
 		const $=q=>document.querySelector(q);
@@ -22,6 +23,11 @@
 		async function main(){
 			let data = await request('/hello2');
 			$('p').innerHTML = data.message;
+		}
+
+		function lg(){
+			logout();
+			main();
 		}
 
 		main();
