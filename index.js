@@ -117,7 +117,6 @@ app.post("/auth", async (req, res) => {
 });
 
 app.post("/auth/google-oneclick", async (req, res) => {
-  console.log("google sign in request recieved");
   try {
     let cred = req.body;
     let data = await verifyToken(cred.credential);
@@ -344,7 +343,6 @@ app.get("/auth/callback/microsoft", async (req, res) => {
     };
     auth[email].token = token;
     loginCallback(sessions[token]);
-    console.log("Microsoft login succeeded");
     setAuthCookie(res, token);
     res.redirect("/");
   } catch (error) {
