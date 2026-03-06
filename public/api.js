@@ -1,70 +1,34 @@
-async function login(username, password) {
-  let req = await fetch("/auth", {
-    method: "POST",
-    headers: { "Content-type": "application/json" },
-    body: JSON.stringify({ username, password }),
-    credentials: "include",
-  });
-  return await req.json();
+// Redirect the browser to start a Google OAuth flow.
+// client_id and redirect_uri must match an entry in clients.json on the auth server.
+function googleOAuth(clientId, redirectUri) {
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
+  window.location.href = `/auth/google?${params}`;
 }
 
+// Redirect the browser to start a Microsoft OAuth flow.
+function microsoftOAuth(clientId, redirectUri) {
+  const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
+  window.location.href = `/auth/microsoft?${params}`;
+}
+
+// Verify a token returned by the auth server (server-to-server call from your backend).
+// Returns { valid: true, user: { sub, email, name, picture, provider } } or { valid: false }.
+async function verifyAuthToken(token) {
+  const res = await fetch("/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  return res.json();
+}
+
+// Generic authenticated request helper for your own API (once you have your own session).
 async function request(url, data = {}) {
   if (!data.method) data.method = "GET";
   if (!data.headers) data.headers = {};
   if (!data.headers["Content-Type"])
     data.headers["Content-Type"] = "application/json";
   data.credentials = "include";
-  let req = await fetch(url, data);
-  return await req.json();
-}
-
-function googleAuth() {
-  return new Promise((res, rej) => {
-    google.accounts.id.initialize({
-      client_id:
-        "1016767921529-7km6ac8h3cud3256dqjqha6neiufn2om.apps.googleusercontent.com",
-      callback: handleCredentialResponse,
-      scope:
-        "https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
-    });
-    google.accounts.id.prompt();
-
-    function handleCredentialResponse(data) {
-      const idToken = data.credential;
-      const decodedToken = jwt_decode(idToken);
-      const email = decodedToken.email;
-      const name = decodedToken.name;
-      const credential = data.credential;
-      let loginSuccess = loginGoogle({ email, name, credential });
-
-      res({ email, name, credential, loginSuccess });
-    }
-  });
-}
-
-async function loginGoogle(data) {
-  let req = await fetch("/auth/google-oneclick", {
-    method: "POST",
-    headers: { "Content-type": "application/json" },
-    body: JSON.stringify(data),
-    credentials: "include",
-  });
-  return await req.json();
-}
-
-// Redirect-based OAuth (works when third-party cookies are blocked)
-function googleOAuth() {
-  window.location.href = "/auth/google";
-}
-
-function microsoftOAuth() {
-  window.location.href = "/auth/microsoft";
-}
-
-async function logout() {
-  let req = await fetch("/auth", {
-    method: "DELETE",
-    credentials: "include",
-  });
-  return await req.json();
+  const res = await fetch(url, data);
+  return res.json();
 }

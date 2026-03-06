@@ -1,39 +1,35 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Website</title>
-
-	<script src="api.js"></script>
-	<script src="https://accounts.google.com/gsi/client"></script>
-	<script src="jwt-decode.min.js"></script>
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auth Server</title>
+  <script src="api.js"></script>
 </head>
 <body>
-	<p></p>
-	<button onclick="googleAuth()">Google One Click</button>
-	<button onclick="googleOAuth()">Google Auth</button>
-	<button onclick="microsoftOAuth()">Microsoft Auth</button>
-	<button onclick="lg()">Logout</button>
-	<script>
+  <h2>Centralized Auth Server</h2>
+  <p>This server issues signed JWTs to registered client apps after OAuth.</p>
+  <hr>
+  <h3>Test Login (client: <code>app1</code>)</h3>
+  <button onclick="googleOAuth('app1', 'http://localhost:3001/auth/callback')">
+    Sign in with Google
+  </button>
+  <button onclick="microsoftOAuth('app1', 'http://localhost:3001/auth/callback')">
+    Sign in with Microsoft
+  </button>
+  <hr>
+  <h3>Verify a Token</h3>
+  <textarea id="token-input" rows="4" cols="60" placeholder="Paste a token here..."></textarea>
+  <br>
+  <button onclick="testVerify()">Verify Token</button>
+  <pre id="verify-result"></pre>
 
-		const $=q=>document.querySelector(q);
-
-		async function main(){
-			let data = await request('/hello2');
-			$('p').innerHTML = data.message;
-		}
-
-		function lg(){
-			logout();
-			main();
-		}
-
-		main();
-
-
-
-	</script>
+  <script>
+    async function testVerify() {
+      const token = document.getElementById("token-input").value.trim();
+      const result = await verifyAuthToken(token);
+      document.getElementById("verify-result").textContent = JSON.stringify(result, null, 2);
+    }
+  </script>
 </body>
 </html>

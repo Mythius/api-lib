@@ -1,0 +1,10 @@
+[
+  {
+    "id": "app1",
+    "name": "My Application (Dev)",
+    "allowedRedirects": [
+      "http://localhost:3001/auth/callback",
+      "http://localhost:8080/auth/callback"
+    ]
+  }
+]
