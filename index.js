@@ -323,19 +323,56 @@ app.get("/auth/callback/microsoft", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------------
+
+// Derive the set of allowed origins from each client's registered redirect URIs.
+// e.g. "https://app1.example.com/auth/callback" → "https://app1.example.com"
+const ALLOWED_ORIGINS = new Set(
+  CLIENTS.flatMap((c) =>
+    c.allowedRedirects.map((uri) => {
+      try { return new URL(uri).origin; } catch { return null; }
+    })
+  ).filter(Boolean)
+);
+
+// Apply CORS headers for a specific response.
+// origin: "*" for public endpoints, or the validated request origin for restricted ones.
+function setCors(res, origin) {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+// ---------------------------------------------------------------------------
 // Public key / token verification endpoints
 // ---------------------------------------------------------------------------
 
 // Expose the public key as JWKS so client apps can verify tokens locally
 // without making a network round-trip on every request.
+// CORS: open to all origins — the public key is not sensitive.
 app.get("/auth/jwks.json", (_req, res) => {
+  setCors(res, "*");
   res.json(JWKS);
 });
 
 // Server-to-server token verification endpoint.
 // Client apps can POST a token here and receive the verified payload.
-// Use this as a fallback if you don't want to bundle JWT verification yourself.
+// CORS: restricted to registered client origins only.
+app.options("/auth/verify", (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    setCors(res, origin);
+  }
+  res.sendStatus(204);
+});
+
 app.post("/auth/verify", (req, res) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    setCors(res, origin);
+  }
+
   const { token } = req.body;
   if (!token) {
     return res.status(400).json({ error: "token is required" });
