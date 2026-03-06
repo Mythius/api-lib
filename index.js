@@ -25,6 +25,18 @@ const oauthClient = new OAuth2Client(
 );
 const exposeEndpoints = require("./tools/listEndpoints.js").expose;
 
+// ---------------------------------------------------------------------------
+// CAS (Centralized Auth Server) config
+// When CAS_SERVER_URL is set, Google/Microsoft OAuth is delegated to the CAS
+// server instead of handled locally. The CAS server redirects back here with
+// a signed JWT which this server verifies and converts into a local session.
+// ---------------------------------------------------------------------------
+const CAS_SERVER_URL = process.env.CAS_SERVER_URL || null;
+const CAS_CLIENT_ID = process.env.CAS_CLIENT_ID || null;
+const CAS_CALLBACK_URL =
+  process.env.CAS_CALLBACK_URL ||
+  `http://localhost:${port}/auth/callback/cas`;
+
 app.use(cookieParser());
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
@@ -148,7 +160,16 @@ function checkGoogleOAuthEnvVars() {
 }
 
 // Google OAuth 2.0 redirect-based flow (works when third-party cookies are blocked)
+// If CAS_SERVER_URL is configured, delegates to the CAS server instead of doing OAuth locally.
 app.get("/auth/google", (req, res) => {
+  if (CAS_SERVER_URL && CAS_CLIENT_ID) {
+    const params = new URLSearchParams({
+      client_id: CAS_CLIENT_ID,
+      redirect_uri: CAS_CALLBACK_URL,
+    });
+    return res.redirect(`${CAS_SERVER_URL}/auth/google?${params}`);
+  }
+
   const missing = checkGoogleOAuthEnvVars();
   if (missing.length > 0) {
     return res.status(503).json({
@@ -241,7 +262,16 @@ function checkMicrosoftEnvVars() {
 }
 
 // Step 1: Generate Microsoft Login URL
+// If CAS_SERVER_URL is configured, delegates to the CAS server instead of doing OAuth locally.
 app.get("/auth/microsoft", (req, res) => {
+  if (CAS_SERVER_URL && CAS_CLIENT_ID) {
+    const params = new URLSearchParams({
+      client_id: CAS_CLIENT_ID,
+      redirect_uri: CAS_CALLBACK_URL,
+    });
+    return res.redirect(`${CAS_SERVER_URL}/auth/microsoft?${params}`);
+  }
+
   const missing = checkMicrosoftEnvVars();
   if (missing.length > 0) {
     return res.status(503).json({
@@ -348,6 +378,56 @@ app.get("/auth/callback/microsoft", async (req, res) => {
   } catch (error) {
     console.error("Microsoft Sign-In error:", error);
     res.status(500).json({ error: "Microsoft authentication failed" });
+  }
+});
+
+// CAS callback — receives ?token=<jwt> from the CAS server after OAuth.
+// Verifies the JWT via the CAS /auth/verify endpoint, then creates a local session.
+app.get("/auth/callback/cas", async (req, res) => {
+  if (!CAS_SERVER_URL) {
+    return res.status(503).json({ error: "CAS is not configured on this server" });
+  }
+
+  const { token: casToken } = req.query;
+  if (!casToken) {
+    return res.status(400).json({ error: "Missing token from CAS" });
+  }
+
+  try {
+    const verifyRes = await fetch(`${CAS_SERVER_URL}/auth/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: casToken }),
+    });
+
+    const { valid, user, error: verifyError } = await verifyRes.json();
+    if (!valid || !user) {
+      console.error("CAS token verification failed:", verifyError);
+      return res.status(403).json({ error: "Invalid CAS token" });
+    }
+
+    const email = user.email;
+    if (!(email in auth)) {
+      auth[email] = { priv: 0, token: "" };
+    }
+    if (auth[email].token) delete sessions[auth[email].token];
+
+    const token = md5(new Date().toISOString() + email);
+    sessions[token] = {
+      user: auth[email],
+      username: user.name,
+      email,
+      photoUrl: user.picture || null,
+      cas_data: user,
+    };
+    auth[email].token = token;
+    loginCallback(sessions[token]);
+
+    setAuthCookie(res, token);
+    res.redirect("/");
+  } catch (err) {
+    console.error("CAS callback error:", err.message);
+    res.status(500).json({ error: "CAS authentication failed" });
   }
 });
 
