@@ -1,0 +1,3 @@
+CAS_SERVER_URL="https://cas.msouthwick.com"
+CAS_CLIENT_ID=default
+CAS_CALLBACK_URL="http://localhost/auth/callback/cas"
