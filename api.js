@@ -6,10 +6,13 @@ exports.public = function (app) {
 };
 
 exports.private = function (app) {
-  app.get("/hello2", (req, res) => {
-    res.json({
-      message: "Hello " + req.session.username,
-    });
+  app.get("/user", (req, res) => {
+    res.json(
+      req.session.cas_data ||
+        req.session.google_data ||
+        req.session.microsoft_data ||
+        {},
+    );
   });
 };
 
