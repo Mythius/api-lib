@@ -110,6 +110,10 @@ function expose(app) {
     .PATCH {
       background-color: #9d54c7ff;
     }
+
+    .OPTIONS {
+      background-color: #e8619aff;
+    }
   </style>
 </head>
 
