@@ -3,33 +3,65 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Auth Server</title>
-  <script src="api.js"></script>
+  <title>CAS Server</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      text-align: center;
+      padding: 3rem 4rem;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 0.5rem;
+    }
+    p {
+      color: #94a3b8;
+      margin-bottom: 2rem;
+      font-size: 0.95rem;
+    }
+    .links {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+    }
+    a {
+      color: #818cf8;
+      text-decoration: none;
+      font-size: 0.9rem;
+      padding: 0.5rem 1.2rem;
+      border: 1px solid #3730a3;
+      border-radius: 8px;
+      transition: background 0.2s, color 0.2s;
+    }
+    a:hover {
+      background: #3730a3;
+      color: #fff;
+    }
+  </style>
 </head>
 <body>
-  <h2>Centralized Auth Server</h2>
-  <p>This server issues signed JWTs to registered client apps after OAuth.</p>
-  <hr>
-  <h3>Test Login (client: <code>app1</code>)</h3>
-  <button onclick="googleOAuth('app1', 'http://localhost:3001/auth/callback')">
-    Sign in with Google
-  </button>
-  <button onclick="microsoftOAuth('app1', 'http://localhost:3001/auth/callback')">
-    Sign in with Microsoft
-  </button>
-  <hr>
-  <h3>Verify a Token</h3>
-  <textarea id="token-input" rows="4" cols="60" placeholder="Paste a token here..."></textarea>
-  <br>
-  <button onclick="testVerify()">Verify Token</button>
-  <pre id="verify-result"></pre>
-
-  <script>
-    async function testVerify() {
-      const token = document.getElementById("token-input").value.trim();
-      const result = await verifyAuthToken(token);
-      document.getElementById("verify-result").textContent = JSON.stringify(result, null, 2);
-    }
-  </script>
+  <div class="card">
+    <h1>CAS Server</h1>
+    <p>Centralized Authentication Service</p>
+    <div class="links">
+      <a href="https://profile.msouthwick.com" target="_blank">Profile</a>
+      <a href="https://github.com/mythius" target="_blank">GitHub</a>
+    </div>
+  </div>
 </body>
 </html>
