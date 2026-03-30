@@ -7,7 +7,6 @@
 
     <script src="api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="jwt-decode.min.js"></script>
   </head>
   <body>
     <p></p>
@@ -18,8 +17,8 @@
       const $ = (q) => document.querySelector(q);
 
       async function main() {
-        let data = await request("/hello2");
-        $("p").innerHTML = data.message;
+        let data = await request("/user");
+        $("p").innerHTML = `Hello ${data.name}`;
       }
 
       function lg() {

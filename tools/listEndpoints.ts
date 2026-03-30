@@ -1,34 +1,13 @@
-function listEndpoints(app, log = false) {
-  const routes = [];
+import { Hono } from "hono";
 
-  function extractRoutes(stack, prefix = "") {
-    stack.forEach((layer) => {
-      if (layer.route) {
-        // Direct route
-        const methods = Object.keys(layer.route.methods)
-          .map((m) => m.toUpperCase())
-          .join(", ");
-        routes.push({ method: methods, path: prefix + layer.route.path });
-      } else if (layer.name === "router" && layer.handle.stack) {
-        // Nested router (e.g. app.use('/api', someRouter))
-        extractRoutes(
-          layer.handle.stack,
-          prefix + (layer.regexp.source === "^\\/" ? "" : layer.regexp.source)
-        );
-      }
-    });
-  }
-
-  extractRoutes(app._router.stack);
-
-  //   console.log("📌 Express Endpoints:\n");
-  if (log) routes.forEach((r) => console.log(`[${r.method}] ${r.path}`));
-
-  return routes;
+function listEndpoints(app: Hono) {
+  return app.routes
+    .filter((r) => r.method !== "ALL")
+    .map((r) => ({ method: r.method, path: r.path }));
 }
 
-function expose(app) {
-  app.get("/endpoints/html", (req, res) => {
+export function expose(app: Hono) {
+  app.get("/html/endpoints", (c) => {
     const endpoints = listEndpoints(app);
 
     const html = /*html*/ `
@@ -110,10 +89,6 @@ function expose(app) {
     .PATCH {
       background-color: #9d54c7ff;
     }
-
-    .OPTIONS {
-      background-color: #e8619aff;
-    }
   </style>
 </head>
 
@@ -144,13 +119,11 @@ function expose(app) {
 </html>
   `;
 
-    res.send(html);
+    return c.html(html);
   });
-  app.get("/endpoints/json", (req, res) => {
+
+  app.get("/json/endpoints", (c) => {
     const endpoints = listEndpoints(app);
-    res.json(endpoints);
+    return c.json(endpoints);
   });
 }
-
-exports.listEndpoints = listEndpoints;
-exports.expose = expose;

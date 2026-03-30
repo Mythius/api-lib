@@ -1,45 +1,44 @@
-// const db = require('./db.js');
-exports.public = function (app) {
-  app.get("/hello", (req, res) => {
-    res.json({ message: "Hello World" });
-  });
-};
+import { Hono } from "hono";
+import type { Session } from "./tools/auth.ts";
+import { exposePrismaCRUD } from "./tools/prisma.ts";
 
-exports.private = function (app) {
-  app.get("/user", (req, res) => {
-    res.json(
-      req.session.cas_data ||
-        req.session.google_data ||
-        req.session.microsoft_data ||
-        {},
+export function publicRoutes(app: Hono): void {
+  app.get("/hello", (c) => c.json({ message: "Hello World" }));
+}
+
+export function privateRoutes(app: Hono): void {
+  app.get("/user", (c) => {
+    const session = (c as any).get("session") as Session;
+    return c.json(
+      session.cas_data || session.google_data || session.microsoft_data || {},
     );
   });
-};
 
-exports.onLogin = function (session) {
+  exposePrismaCRUD("api", app);
+}
+
+export function onLogin(session: Session): void {
   console.log(
     "User logged in:",
     session.cas_data || session.google_data || session.microsoft_data,
   );
-};
+}
 
 /* session.google_data
 
 {
   iss: 'https://accounts.google.com',
-  azp: '1016767921529-7km6ac8h3cud3256dqjqha6neiufn2om.apps.googleusercontent.com',
-  aud: '1016767921529-7km6ac8h3cud3256dqjqha6neiufn2om.apps.googleusercontent.com',
+  azp: '...',
+  aud: '...',
   sub: '103589682456946370010',
   email: 'southwickmatthias@gmail.com',
   email_verified: true,
-  nbf: 1723080904,
   name: 'Matthias Southwick',
-  picture: 'https://lh3.googleusercontent.com/a/ACg8ocLjdsGc7uC2mmthGuvrPpmV2AFT2U_EdiXxon8tX5QwbR7m8VYkeA=s96-c',
+  picture: 'https://lh3.googleusercontent.com/...',
   given_name: 'Matthias',
   family_name: 'Southwick',
   iat: 1723081204,
   exp: 1723084804,
-  jti: 'ad27c4b889a0eb48b6ce4cf6690fca739892ca88'
 }
 
 */
