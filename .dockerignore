@@ -5,3 +5,8 @@ dist
 *.log
 .DS_Store
 auth.json
+.claude
+.gitattributes
+.gitignore
+example-env
+server.sh

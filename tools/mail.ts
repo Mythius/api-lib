@@ -13,26 +13,38 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-function sendEmailGmail(to: string | string[], subject: string, html: string): Promise<string> {
-  if (LOG) console.log("Sending email via Gmail");
-  return new Promise((resolve, reject) => {
-    transporter.sendMail(
-      { from: process.env.EMAIL_FROM || "Name", to, subject, html },
-      (error, info) => {
-        if (error) {
-          if (LOG) console.error("Error:", error);
-          reject(error);
-        } else {
-          if (LOG) console.log("Email sent:", info.response);
-          resolve(info.response);
-        }
-      }
-    );
-  });
-}
-
 interface SendEmailOptions {
   attachment?: string;
+}
+
+function sendEmailGmail(
+  to: string | string[],
+  subject: string,
+  html: string,
+  options: SendEmailOptions = {}
+): Promise<string> {
+  if (LOG) console.log("Sending email via Gmail");
+  return new Promise((resolve, reject) => {
+    const { attachment } = options;
+    const mailOptions: nodemailer.SendMailOptions = {
+      from: process.env.EMAIL_FROM || "Name",
+      to,
+      subject,
+      html,
+    };
+    if (attachment) {
+      mailOptions.attachments = [{ path: attachment, filename: basename(attachment) }];
+    }
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        if (LOG) console.error("Error:", error);
+        reject(error);
+      } else {
+        if (LOG) console.log("Email sent:", info.response);
+        resolve(info.response);
+      }
+    });
+  });
 }
 
 function sendEmailLinux(
@@ -85,10 +97,11 @@ function sendEmailLinux(
 export function sendEmail(
   to: string | string[],
   subject: string,
-  html: string
+  html: string,
+  options: SendEmailOptions = {}
 ): Promise<string | void> {
   if (process.env.EMAIL_TYPE === "linux") {
-    return sendEmailLinux(to, subject, html);
+    return sendEmailLinux(to, subject, html, options);
   }
-  return sendEmailGmail(to, subject, html);
+  return sendEmailGmail(to, subject, html, options);
 }
