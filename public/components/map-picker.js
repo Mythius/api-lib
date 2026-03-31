@@ -67,21 +67,57 @@ class MapPicker extends HTMLElement {
           white-space: nowrap;
         }
         #hint.hidden { display: none; }
-        #locate {
-          position: absolute; top: 10px; right: 10px; z-index: 999;
-          background: #fff; border: 2px solid rgba(0,0,0,.2); border-radius: 6px;
-          width: 34px; height: 34px; cursor: pointer; display: flex; align-items: center;
-          justify-content: center; font-size: 18px; box-shadow: 0 1px 5px rgba(0,0,0,.2);
+        #search-wrap {
+          position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+          z-index: 1000; width: min(360px, calc(100% - 120px));
+        }
+        #search-wrap.hidden { display: none; }
+        #search-input {
+          width: 100%; box-sizing: border-box;
+          padding: 8px 36px 8px 14px; font-size: 14px; color: #111827;
+          border: none; border-radius: 8px; outline: none;
+          background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+        }
+        #search-input:focus { box-shadow: 0 2px 12px rgba(99,102,241,.35); }
+        #search-clear {
+          position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+          background: none; border: none; cursor: pointer; color: #9ca3af;
+          font-size: 16px; padding: 0; line-height: 1; display: none;
+        }
+        #search-clear.visible { display: block; }
+        #search-clear:hover { color: #374151; }
+        #search-results {
+          margin-top: 4px; background: #fff; border-radius: 8px;
+          box-shadow: 0 4px 16px rgba(0,0,0,.15); overflow: hidden; display: none;
+        }
+        #search-results.open { display: block; }
+        .sr-item {
+          padding: 9px 14px; font-size: 13px; color: #111827; cursor: pointer;
+          border-bottom: 1px solid #f3f4f6; line-height: 1.4;
+        }
+        .sr-item:last-child { border-bottom: none; }
+        .sr-item:hover, .sr-item.focused { background: #f3f4f6; }
+        .sr-item .sr-type { font-size: 11px; color: #9ca3af; margin-left: 6px; }
+        .sr-empty, .sr-loading { padding: 10px 14px; font-size: 13px; color: #9ca3af; }
+        .leaflet-locate-btn {
+          background: #fff; border: none; border-radius: 4px;
+          width: 30px; height: 30px; cursor: pointer; display: flex; align-items: center;
+          justify-content: center; font-size: 18px;
+          box-shadow: 0 1px 5px rgba(0,0,0,.4);
           transition: background .15s;
         }
-        #locate:hover { background: #f0f0f0; }
-        #locate.loading { animation: spin .8s linear infinite; }
-        #locate.error { color: #ef4444; }
+        .leaflet-locate-btn:hover { background: #f4f4f4; }
+        .leaflet-locate-btn.loading { animation: spin .8s linear infinite; display: inline-block; }
+        .leaflet-locate-btn.error { color: #ef4444; }
         @keyframes spin { to { transform: rotate(360deg); } }
       </style>
       <div id="wrap">
         <div id="map"></div>
-        <button id="locate" title="Go to my location">&#8982;</button>
+        <div id="search-wrap" class="hidden">
+          <input id="search-input" type="text" placeholder="Search address…" autocomplete="off" />
+          <button id="search-clear" title="Clear">&#215;</button>
+          <div id="search-results"></div>
+        </div>
         <div id="coords" class="hidden"></div>
         <div id="hint">Click map to drop a pin</div>
       </div>`;
@@ -103,10 +139,45 @@ class MapPicker extends HTMLElement {
     // Recalculate container size after shadow DOM has fully rendered
     setTimeout(() => map.invalidateSize(), 0);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-      maxZoom: 19,
-    }).addTo(map);
+    const baseLayers = {
+      "Map": L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+        maxZoom: 19,
+      }),
+      "Satellite": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        attribution: "© Esri, Maxar, Earthstar Geographics",
+        maxZoom: 19,
+      }),
+      "Hybrid": L.layerGroup([
+        L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+          attribution: "© Esri, Maxar, Earthstar Geographics",
+          maxZoom: 19,
+        }),
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+          maxZoom: 19,
+          opacity: 0.4,
+        }),
+      ]),
+    };
+
+    baseLayers["Map"].addTo(map);
+    L.control.layers(baseLayers, {}, { position: "topright", collapsed: false }).addTo(map);
+
+    // Locate button as a proper Leaflet control (bottomright, avoids layer switcher)
+    const LocateControl = L.Control.extend({
+      options: { position: "bottomright" },
+      onAdd: () => {
+        const btn = L.DomUtil.create("button", "leaflet-locate-btn");
+        btn.title = "Go to my location";
+        btn.innerHTML = "⌖";
+        L.DomEvent.on(btn, "click", L.DomEvent.stopPropagation);
+        L.DomEvent.on(btn, "click", L.DomEvent.preventDefault);
+        L.DomEvent.on(btn, "click", () => this._goToLocation(L, btn, coordEl, hintEl));
+        return btn;
+      },
+    });
+    new LocateControl().addTo(map);
 
     // If lat/lng are set as attributes, drop initial pin
     if (this.hasAttribute("lat") && this.hasAttribute("lng")) {
@@ -120,19 +191,122 @@ class MapPicker extends HTMLElement {
       });
     }
 
-    const locateBtn = root.getElementById("locate");
-    locateBtn.addEventListener("click", () => this._goToLocation(L, coordEl, hintEl));
+    if (this.hasAttribute("search")) {
+      this._initSearch(L, coordEl, hintEl);
+    }
   }
 
-  _goToLocation(L, coordEl, hintEl) {
+  _initSearch(L, coordEl, hintEl) {
+    const root      = this.shadowRoot;
+    const wrap      = root.getElementById("search-wrap");
+    const input     = root.getElementById("search-input");
+    const clearBtn  = root.getElementById("search-clear");
+    const results   = root.getElementById("search-results");
+
+    wrap.classList.remove("hidden");
+
+    // Prevent map clicks/drags from firing while interacting with the search bar
+    wrap.addEventListener("mousedown", (e) => e.stopPropagation());
+    wrap.addEventListener("touchstart", (e) => e.stopPropagation());
+
+    let debounceTimer = null;
+    let focused = -1;
+
+    input.addEventListener("input", () => {
+      const q = input.value.trim();
+      clearBtn.classList.toggle("visible", q.length > 0);
+      clearTimeout(debounceTimer);
+      if (q.length < 3) { this._closeResults(results); return; }
+      results.innerHTML = `<div class="sr-loading">Searching…</div>`;
+      results.classList.add("open");
+      debounceTimer = setTimeout(() => this._geocode(q, results, input, clearBtn, L, coordEl, hintEl), 400);
+    });
+
+    input.addEventListener("keydown", (e) => {
+      const items = results.querySelectorAll(".sr-item");
+      if (e.key === "ArrowDown")  { e.preventDefault(); focused = Math.min(focused + 1, items.length - 1); this._focusItem(items, focused); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); focused = Math.max(focused - 1, 0); this._focusItem(items, focused); }
+      else if (e.key === "Enter" && focused >= 0) { items[focused]?.click(); }
+      else if (e.key === "Escape") { this._closeResults(results); input.blur(); }
+    });
+
+    clearBtn.addEventListener("click", () => {
+      input.value = "";
+      clearBtn.classList.remove("visible");
+      this._closeResults(results);
+      input.focus();
+    });
+
+    // Close on outside click
+    document.addEventListener("click", (e) => {
+      if (!this.contains(e.target)) this._closeResults(results);
+    });
+  }
+
+  async _geocode(query, resultsEl, input, clearBtn, L, coordEl, hintEl) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`;
+      const res  = await fetch(url, { headers: { "Accept-Language": navigator.language || "en" } });
+      const data = await res.json();
+
+      if (!data.length) {
+        resultsEl.innerHTML = `<div class="sr-empty">No results found</div>`;
+        return;
+      }
+
+      resultsEl.innerHTML = data.map((item, i) => {
+        const type = item.type ? item.type.replace(/_/g, " ") : "";
+        return `<div class="sr-item" data-i="${i}" data-lat="${item.lat}" data-lng="${item.lon}"
+                     data-bbox='${JSON.stringify(item.boundingbox)}'>
+                  ${this._esc(item.display_name)}
+                  ${type ? `<span class="sr-type">${this._esc(type)}</span>` : ""}
+                </div>`;
+      }).join("");
+
+      resultsEl.querySelectorAll(".sr-item").forEach((el) => {
+        el.addEventListener("click", () => {
+          const lat  = parseFloat(el.dataset.lat);
+          const lng  = parseFloat(el.dataset.lng);
+          const bbox = JSON.parse(el.dataset.bbox); // [s, n, w, e]
+
+          // Fly to bounding box for a natural zoom level, then pin
+          this._map.fitBounds([[bbox[0], bbox[2]], [bbox[1], bbox[3]]], { maxZoom: 17 });
+          this._placeMarker(L, lat, lng, coordEl, hintEl);
+          this._dispatch();
+
+          input.value = el.firstChild.textContent.trim();
+          clearBtn.classList.add("visible");
+          this._closeResults(resultsEl);
+        });
+      });
+    } catch {
+      resultsEl.innerHTML = `<div class="sr-empty">Search unavailable</div>`;
+    }
+  }
+
+  _focusItem(items, index) {
+    items.forEach((el, i) => el.classList.toggle("focused", i === index));
+    items[index]?.scrollIntoView({ block: "nearest" });
+  }
+
+  _closeResults(resultsEl) {
+    resultsEl.classList.remove("open");
+    resultsEl.innerHTML = "";
+    const root = this.shadowRoot;
+    if (root) root.getElementById("search-wrap")._focused = -1;
+  }
+
+  _esc(s) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  _goToLocation(L, btn, coordEl, hintEl) {
     if (!navigator.geolocation) {
-      const btn = this.shadowRoot.getElementById("locate");
       btn.classList.add("error");
       btn.title = "Geolocation not supported";
       return;
     }
 
-    const btn = this.shadowRoot.getElementById("locate");
     btn.classList.add("loading");
     btn.title = "Locating…";
 
