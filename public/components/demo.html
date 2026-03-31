@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Components Demo</title>
+  <script src="map-picker.js"></script>
+  <script src="rich-text.js"></script>
+  <script src="tag-input.js"></script>
+  <script src="combobox-input.js"></script>
+  <script src="date-range.js"></script>
+  <script src="file-drop.js"></script>
+  <script src="star-rating.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 780px; margin: 40px auto; padding: 0 20px; color: #111827; }
+    h1   { font-size: 22px; margin-bottom: 32px; }
+    section { margin-bottom: 40px; }
+    h2   { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #6b7280; margin-bottom: 12px; }
+    pre  { background: #f3f4f6; padding: 10px 14px; border-radius: 6px; font-size: 12px; margin-top: 8px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Components</h1>
+
+  <section>
+    <h2>Map Picker</h2>
+    <map-picker style="--map-height:320px" lat="48.8566" lng="2.3522" zoom="12"></map-picker>
+    <pre id="map-out">Click the map to drop a pin</pre>
+    <script>
+      document.querySelector("map-picker").addEventListener("change", (e) => {
+        document.getElementById("map-out").textContent = JSON.stringify(e.detail, null, 2);
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>Rich Text Editor</h2>
+    <rich-text placeholder="Start writing..." style="--editor-height:180px"></rich-text>
+    <pre id="rte-out">Start typing...</pre>
+    <script>
+      document.querySelector("rich-text").addEventListener("change", (e) => {
+        document.getElementById("rte-out").textContent = "HTML: " + e.detail.html.slice(0, 120);
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>Tag Input</h2>
+    <tag-input placeholder="Add tag and press Enter..." value='["design","frontend"]' max="8"></tag-input>
+    <pre id="tag-out">["design","frontend"]</pre>
+    <script>
+      document.querySelector("tag-input").addEventListener("change", (e) => {
+        document.getElementById("tag-out").textContent = JSON.stringify(e.detail.tags);
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>Combobox / Autocomplete</h2>
+    <combobox-input
+      placeholder="Select a fruit..."
+      options='["Apple","Apricot","Avocado","Banana","Blueberry","Cherry","Grape","Kiwi","Lemon","Mango","Orange","Peach","Pear","Pineapple","Strawberry","Watermelon"]'
+    ></combobox-input>
+    <pre id="cb-out">Nothing selected</pre>
+    <script>
+      document.querySelector("combobox-input").addEventListener("change", (e) => {
+        document.getElementById("cb-out").textContent = "Selected: " + e.detail.value;
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>Date Range</h2>
+    <date-range label-start="Check-in" label-end="Check-out"></date-range>
+    <pre id="dr-out">Pick dates</pre>
+    <script>
+      document.querySelector("date-range").addEventListener("change", (e) => {
+        document.getElementById("dr-out").textContent = JSON.stringify(e.detail, null, 2);
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>File Drop</h2>
+    <file-drop accept="image/*,.pdf" multiple max-size-mb="10" label="Drop images or PDFs here"></file-drop>
+    <pre id="fd-out">No files</pre>
+    <script>
+      document.querySelector("file-drop").addEventListener("change", (e) => {
+        document.getElementById("fd-out").textContent = e.detail.files.map((f) => f.name + " (" + (f.size/1024).toFixed(1) + " KB)").join("\n") || "No files";
+      });
+    </script>
+  </section>
+
+  <section>
+    <h2>Star Rating</h2>
+    <star-rating value="3" max="5" size="32"></star-rating>
+    <pre id="sr-out">Value: 3</pre>
+    <script>
+      document.querySelector("star-rating").addEventListener("change", (e) => {
+        document.getElementById("sr-out").textContent = "Value: " + e.detail.value;
+      });
+    </script>
+  </section>
+
+</body>
+</html>

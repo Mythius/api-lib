@@ -19,6 +19,7 @@
       async function main() {
         let data = await request("/user");
         $("p").innerHTML = `Hello ${data.name}`;
+        await setupPrismaOOP();
       }
 
       function lg() {

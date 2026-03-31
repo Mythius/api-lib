@@ -18,6 +18,12 @@ async function request(url, data = {}) {
   return await req.json();
 }
 
+async function setupPrismaOOP() {
+  let data = await request("/api/_schema");
+  if (data.error) return;
+  console.log(data)
+}
+
 // ---------------------------------------------------------------------------
 // CAS (Centralized Auth Server) config — optional.
 // Set this object to redirect OAuth directly to a CAS server instead of
