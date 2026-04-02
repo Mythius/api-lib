@@ -1,9 +1,22 @@
 import { Hono } from "hono";
 import type { Session } from "./tools/auth.ts";
 import { exposePrismaCRUD } from "./tools/prisma.ts";
+import { handleFileUpload } from "./tools/fileUpload.ts";
 
 export function publicRoutes(app: Hono): void {
   app.get("/hello", (c) => c.json({ message: "Hello World" }));
+
+  app.post("/file-upload", async (c) => {
+    const result = await handleFileUpload(c);
+    console.log("File upload result:", result);
+    return "error" in result ? c.json(result, 400) : c.json(result, 201);
+  });
+
+  app.post("/json", async (c) => {
+    const data = await c.req.json();
+    console.log("Received JSON:", data);
+    return c.json({ received: data });
+  });
 }
 
 export function privateRoutes(app: Hono): void {

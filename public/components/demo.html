@@ -85,8 +85,27 @@
     <file-drop accept="image/*,.pdf" multiple max-size-mb="10" label="Drop images or PDFs here"></file-drop>
     <pre id="fd-out">No files</pre>
     <script>
-      document.querySelector("file-drop").addEventListener("change", (e) => {
-        document.getElementById("fd-out").textContent = e.detail.files.map((f) => f.name + " (" + (f.size/1024).toFixed(1) + " KB)").join("\n") || "No files";
+      document.querySelector("file-drop").addEventListener("change", async (e) => {
+        const out = document.getElementById("fd-out");
+        const files = e.detail.files;
+        if (!files.length) { out.textContent = "No files"; return; }
+
+        out.textContent = "Uploading...";
+        const results = [];
+
+        for (const file of files) {
+          const body = new FormData();
+          body.append("file", file);
+          try {
+            const res = await fetch("/file-upload", { method: "POST", body });
+            const data = await res.json();
+            results.push(data);
+          } catch (err) {
+            results.push({ error: String(err), file: file.name });
+          }
+        }
+
+        out.textContent = JSON.stringify(results, null, 2);
       });
     </script>
   </section>
