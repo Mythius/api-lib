@@ -17,7 +17,7 @@ app.use("/*", serveStatic({ root: "./public" }));
 app.get("/health", (c) => c.json({ status: "ok" }));
 
 setOnLoginCallback(API.onLogin);
-setSessionStore("redis");
+// setSessionStore("redis");
 
 // Public routes — no authentication required
 authPublic(app);
