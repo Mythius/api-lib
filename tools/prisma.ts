@@ -41,4 +41,4 @@ function exposePrismaCRUD(prefix: string = "api", app: any) {
   }
 }
 
-export { exposePrismaCRUD };
+export { exposePrismaCRUD, prisma, createCRUD };

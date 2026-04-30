@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { readFileSync } from "fs";
+import { Context } from "hono";
 
 export interface PrismaDelegate {
   findMany(args?: object): Promise<unknown[]>;
@@ -26,7 +27,10 @@ function handlePrismaError(c: any, error: unknown) {
       case "P2025":
         return c.json({ error: "Record not found" }, 404);
       case "P2002":
-        return c.json({ error: "A record with that value already exists" }, 409);
+        return c.json(
+          { error: "A record with that value already exists" },
+          409,
+        );
       case "P2003":
         return c.json({ error: "Foreign key constraint failed" }, 400);
       case "P2000":
@@ -40,9 +44,10 @@ function handlePrismaError(c: any, error: unknown) {
   return c.json({ error: "Internal server error" }, 500);
 }
 
-function parseId(param: string): number | null {
-  const id = parseInt(param);
-  return isNaN(id) ? null : id;
+function parseId(param: string): string | null {
+  return param;
+  // const id = parseInt(param);
+  // return isNaN(id) ? null : id;
 }
 
 export function parseSchema(
@@ -86,7 +91,8 @@ export function parseSchema(
         const fkColumn = relMatch[1]!;
         const refField = relMatch[2]!;
         foreignKeys[fkColumn] = {
-          referencedModel: fieldType.charAt(0).toLowerCase() + fieldType.slice(1),
+          referencedModel:
+            fieldType.charAt(0).toLowerCase() + fieldType.slice(1),
           referencedField: refField,
         };
       } else if (!isArray && !trimmed.includes("@relation")) {
@@ -106,8 +112,14 @@ export function createCRUD(
   path: string,
   model: PrismaDelegate,
   pkField: string,
+  checkPermissions: (
+    action: string,
+    c: Context,
+  ) => boolean | Promise<boolean> = () => true,
 ) {
   app.get(path, async (c) => {
+    if (!(await checkPermissions("GET", c)))
+      return c.json({ error: "Forbidden" }, 403);
     try {
       const items = await model.findMany();
       return c.json(items);
@@ -117,6 +129,8 @@ export function createCRUD(
   });
 
   app.get(`${path}/:id`, async (c) => {
+    if (!(await checkPermissions("GET", c)))
+      return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
@@ -129,8 +143,10 @@ export function createCRUD(
   });
 
   app.get(path + "/page/:page/:pageSize", async (c) => {
-    const page = parseId(c.req.param("page") || "1") ?? 1;
-    const pageSize = parseId(c.req.param("pageSize") || "10") ?? 10;
+    if (!(await checkPermissions("GET", c)))
+      return c.json({ error: "Forbidden" }, 403);
+    const page = parseInt(c.req.param("page") || "1") ?? 1;
+    const pageSize = parseInt(c.req.param("pageSize") || "10") ?? 10;
     try {
       const items = await model.findMany({
         skip: (page - 1) * pageSize,
@@ -143,6 +159,8 @@ export function createCRUD(
   });
 
   app.post(path + "/filter", async (c) => {
+    if (!(await checkPermissions("GET", c)))
+      return c.json({ error: "Forbidden" }, 403);
     try {
       const body = await c.req.json();
       const items = await model.findMany({ where: body });
@@ -156,6 +174,8 @@ export function createCRUD(
   });
 
   app.post(path, async (c) => {
+    if (!(await checkPermissions("POST", c)))
+      return c.json({ error: "Forbidden" }, 403);
     try {
       const body = await c.req.json();
       const item = await model.create({ data: body });
@@ -169,6 +189,8 @@ export function createCRUD(
   });
 
   app.put(`${path}/:id`, async (c) => {
+    if (!(await checkPermissions("PUT", c)))
+      return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
@@ -184,6 +206,8 @@ export function createCRUD(
   });
 
   app.delete(`${path}/:id`, async (c) => {
+    if (!(await checkPermissions("DELETE", c)))
+      return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {

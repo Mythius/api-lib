@@ -43,6 +43,7 @@ export interface Session {
   microsoft_data?: Record<string, unknown>;
   cas_data?: Record<string, unknown>;
   photoUrl?: string | null;
+  db?: any | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,10 +59,18 @@ interface SessionStore {
 class MemoryStore implements SessionStore {
   private data: Record<string, Session> = {};
 
-  async get(token: string) { return this.data[token] ?? null; }
-  async set(token: string, session: Session) { this.data[token] = session; }
-  async delete(token: string) { delete this.data[token]; }
-  async has(token: string) { return token in this.data; }
+  async get(token: string) {
+    return this.data[token] ?? null;
+  }
+  async set(token: string, session: Session) {
+    this.data[token] = session;
+  }
+  async delete(token: string) {
+    delete this.data[token];
+  }
+  async has(token: string) {
+    return token in this.data;
+  }
 }
 
 class RedisStore implements SessionStore {
@@ -71,14 +80,21 @@ class RedisStore implements SessionStore {
     this.redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
   }
 
-  private key(token: string) { return `session:${token}`; }
+  private key(token: string) {
+    return `session:${token}`;
+  }
 
   async get(token: string) {
     const data = await this.redis.get(this.key(token));
     return data ? (JSON.parse(data) as Session) : null;
   }
   async set(token: string, session: Session) {
-    await this.redis.set(this.key(token), JSON.stringify(session), "EX", SESSION_TTL);
+    await this.redis.set(
+      this.key(token),
+      JSON.stringify(session),
+      "EX",
+      SESSION_TTL,
+    );
   }
   async delete(token: string) {
     await this.redis.del(this.key(token));
@@ -134,19 +150,19 @@ export function setOnLoginCallback(cb: (session: Session) => void): void {
   onLoginCallback = cb;
 }
 
-function loginCallback(session: Session): void {
+async function loginCallback(session: Session): Promise<void> {
   saveAuth();
-  if (onLoginCallback) onLoginCallback(session);
+  if (onLoginCallback) await onLoginCallback(session);
 }
 
 // ---------------------------------------------------------------------------
 // Google OAuth helpers (no external dependency — uses Google REST APIs)
 // ---------------------------------------------------------------------------
 async function verifyGoogleToken(
-  idToken: string
+  idToken: string,
 ): Promise<Record<string, unknown>> {
   const res = await fetch(
-    `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${idToken}`,
   );
   if (!res.ok) throw new Error("Invalid Google token");
   const data = (await res.json()) as Record<string, unknown>;
@@ -155,12 +171,14 @@ async function verifyGoogleToken(
 }
 
 function checkGoogleOAuthEnvVars(): string[] {
-  return ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"].filter((key) => !process.env[key]);
+  return ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"].filter(
+    (key) => !process.env[key],
+  );
 }
 
 function checkMicrosoftEnvVars(): string[] {
   return ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"].filter(
-    (key) => !process.env[key]
+    (key) => !process.env[key],
   );
 }
 
@@ -180,7 +198,10 @@ export function setupPublicRoutes(app: Hono): void {
       if (md5(cred.password) === auth[cred.username].password) {
         const token = md5(new Date().toISOString() + cred.username);
         await store.delete(auth[cred.username].token);
-        const session: Session = { user: auth[cred.username], username: cred.username };
+        const session: Session = {
+          user: auth[cred.username],
+          username: cred.username,
+        };
         await store.set(token, session);
         auth[cred.username].token = token;
         setAuthCookie(c, token);
@@ -216,7 +237,7 @@ export function setupPublicRoutes(app: Hono): void {
       };
       await store.set(token, session);
       auth[cred.email].token = token;
-      loginCallback(session);
+      await loginCallback(session);
       setAuthCookie(c, token);
       return c.json({ message: "Successfully Logged In" }, 200);
     } catch (e) {
@@ -241,7 +262,7 @@ export function setupPublicRoutes(app: Hono): void {
           message: `Missing environment variables: ${missing.join(", ")}`,
           hint: "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file.",
         },
-        503
+        503,
       );
     }
     const params = new URLSearchParams({
@@ -255,9 +276,7 @@ export function setupPublicRoutes(app: Hono): void {
       access_type: "offline",
       prompt: "select_account",
     });
-    return c.redirect(
-      `https://accounts.google.com/o/oauth2/v2/auth?${params}`
-    );
+    return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
   app.get("/auth/callback/google", async (c) => {
@@ -269,7 +288,7 @@ export function setupPublicRoutes(app: Hono): void {
           message: `Missing environment variables: ${missing.join(", ")}`,
           hint: "Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to your .env file.",
         },
-        503
+        503,
       );
     }
     const code = c.req.query("code");
@@ -313,7 +332,7 @@ export function setupPublicRoutes(app: Hono): void {
       };
       await store.set(token, session);
       auth[email].token = token;
-      loginCallback(session);
+      await loginCallback(session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (error) {
@@ -338,7 +357,7 @@ export function setupPublicRoutes(app: Hono): void {
           message: `Missing environment variables: ${missing.join(", ")}`,
           hint: "Add these variables to your .env file to enable Microsoft login",
         },
-        503
+        503,
       );
     }
     const params = new URLSearchParams({
@@ -360,7 +379,7 @@ export function setupPublicRoutes(app: Hono): void {
           message: `Missing environment variables: ${missing.join(", ")}`,
           hint: "Add these variables to your .env file to enable Microsoft login",
         },
-        503
+        503,
       );
     }
     const code = c.req.query("code");
@@ -419,7 +438,7 @@ export function setupPublicRoutes(app: Hono): void {
       };
       await store.set(token, session);
       auth[email].token = token;
-      loginCallback(session);
+      await loginCallback(session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (error) {
@@ -442,7 +461,11 @@ export function setupPublicRoutes(app: Hono): void {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: casToken }),
       });
-      const { valid, user, error: verifyError } = (await verifyRes.json()) as {
+      const {
+        valid,
+        user,
+        error: verifyError,
+      } = (await verifyRes.json()) as {
         valid: boolean;
         user?: {
           email: string;
@@ -473,7 +496,7 @@ export function setupPublicRoutes(app: Hono): void {
       };
       await store.set(token, session);
       auth[email].token = token;
-      loginCallback(session);
+      await loginCallback(session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (err) {
@@ -554,7 +577,7 @@ export function setupPrivateRoutes(app: Hono): void {
     } else {
       return c.json(
         { message: "Username and Password must be specified" },
-        400
+        400,
       );
     }
     return c.json({ message: "User created Successfully" });
