@@ -144,9 +144,9 @@ function saveAuth(): void {
   Bun.write("auth.json", JSON.stringify(auth));
 }
 
-let onLoginCallback: ((session: Session) => void) | null = null;
+let onLoginCallback: ((session: Session) => Promise<void>) | null = null;
 
-export function setOnLoginCallback(cb: (session: Session) => void): void {
+export function setOnLoginCallback(cb: (session: Session) => Promise<void>): void {
   onLoginCallback = cb;
 }
 
@@ -235,9 +235,9 @@ export function setupPublicRoutes(app: Hono): void {
         google_data: data,
         photoUrl: data.picture as string,
       };
-      await store.set(token, session);
       auth[cred.email].token = token;
       await loginCallback(session);
+      await store.set(token, session);
       setAuthCookie(c, token);
       return c.json({ message: "Successfully Logged In" }, 200);
     } catch (e) {
@@ -330,9 +330,9 @@ export function setupPublicRoutes(app: Hono): void {
         google_data: payload,
         photoUrl: payload.picture as string,
       };
-      await store.set(token, session);
       auth[email].token = token;
       await loginCallback(session);
+      await store.set(token, session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (error) {
@@ -436,9 +436,9 @@ export function setupPublicRoutes(app: Hono): void {
         microsoft_data: profile,
         email,
       };
-      await store.set(token, session);
       auth[email].token = token;
       await loginCallback(session);
+      await store.set(token, session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (error) {
@@ -494,9 +494,9 @@ export function setupPublicRoutes(app: Hono): void {
         photoUrl: user.picture || null,
         cas_data: user,
       };
-      await store.set(token, session);
       auth[email].token = token;
       await loginCallback(session);
+      await store.set(token, session);
       setAuthCookie(c, token);
       return c.redirect("/");
     } catch (err) {
