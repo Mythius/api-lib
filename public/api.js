@@ -14,6 +14,9 @@ async function request(url, data = {}) {
   if (!data.headers["Content-Type"])
     data.headers["Content-Type"] = "application/json";
   data.credentials = "include";
+  if (data.body && typeof data.body !== "string") {
+    data.body = JSON.stringify(data.body);
+  }
   let req = await fetch(url, data);
   return await req.json();
 }
@@ -21,7 +24,7 @@ async function request(url, data = {}) {
 async function setupPrismaOOP() {
   let data = await request("/api/_schema");
   if (data.error) return;
-  console.log(data)
+  console.log(data);
 }
 
 // ---------------------------------------------------------------------------
