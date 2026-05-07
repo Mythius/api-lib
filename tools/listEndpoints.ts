@@ -7,7 +7,7 @@ function listEndpoints(app: Hono) {
 }
 
 export function expose(app: Hono) {
-  app.get("/html/endpoints", (c) => {
+  app.get("/endpoints/html", (c) => {
     const endpoints = listEndpoints(app);
 
     const html = /*html*/ `
@@ -122,7 +122,7 @@ export function expose(app: Hono) {
     return c.html(html);
   });
 
-  app.get("/json/endpoints", (c) => {
+  app.get("/endpoints/json", (c) => {
     const endpoints = listEndpoints(app);
     return c.json(endpoints);
   });

@@ -29,7 +29,7 @@ if (scheme === "mysql" || scheme === "mariadb") {
 const prisma = new PrismaClient({ adapter });
 const schemaCache = parseSchema();
 
-function exposePrismaCRUD(prefix: string = "api", app: any) {
+function exposePrismaCRUD(prefix: string = "api", app: any, checkpermissions: (action: string, c: any) => boolean = () => true) {
   app.get(`/${prefix}/_schema`, (c: any) => c.json(schemaCache));
   for (const model of Object.keys(prisma)) {
     if (model.startsWith("_")) continue;
@@ -37,7 +37,7 @@ function exposePrismaCRUD(prefix: string = "api", app: any) {
     if (model === "constructor") continue;
 
     const pkField = schemaCache[model]?.primaryKey || "id";
-    createCRUD(app, `${prefix}/${model}`, (prisma as any)[model], pkField);
+    createCRUD(app, `${prefix}/${model}`, (prisma as any)[model], pkField, checkpermissions);
   }
 }
 
