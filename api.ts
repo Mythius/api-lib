@@ -30,7 +30,7 @@ export function privateRoutes(app: Hono): void {
   exposePrismaCRUD("api", app);
 }
 
-export function onLogin(session: Session): void {
+export async function onLogin(session: Session): Promise<void> {
   console.log(
     "User logged in:",
     session.cas_data || session.google_data || session.microsoft_data,
