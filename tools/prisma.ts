@@ -1,5 +1,6 @@
 import { PrismaClient } from "./generated/prisma";
-import { createCRUD, parseSchema } from "./createCRUD.ts";
+import { createCRUD, parseSchema, PermissionResult } from "./createCRUD.ts";
+import { Context } from "hono";
 
 const dbUrl = new URL(process.env.DATABASE_URL!);
 const scheme = dbUrl.protocol.replace(":", "");
@@ -29,7 +30,23 @@ if (scheme === "mysql" || scheme === "mariadb") {
 const prisma = new PrismaClient({ adapter });
 const schemaCache = parseSchema();
 
-function exposePrismaCRUD(prefix: string = "api", app: any, checkpermissions: (action: string, c: any) => boolean = () => true) {
+function exposePrismaCRUD(
+  prefix: string = "api",
+  app: any,
+  checkpermissions: (
+    action: string,
+    c: Context,
+  ) =>
+    | PermissionResult
+    | boolean
+    | Promise<PermissionResult | boolean> = () => ({ allowed: true }),
+  validateData: (
+    c: Context,
+    path: string,
+    action: string,
+    data: any,
+  ) => string | null | Promise<string | null> = () => null,
+) {
   app.get(`/${prefix}/_schema`, (c: any) => c.json(schemaCache));
   for (const model of Object.keys(prisma)) {
     if (model.startsWith("_")) continue;
@@ -37,8 +54,15 @@ function exposePrismaCRUD(prefix: string = "api", app: any, checkpermissions: (a
     if (model === "constructor") continue;
 
     const pkField = schemaCache[model]?.primaryKey || "id";
-    createCRUD(app, `${prefix}/${model}`, (prisma as any)[model], pkField, checkpermissions);
+    createCRUD(
+      app,
+      `${prefix}/${model}`,
+      (prisma as any)[model],
+      pkField,
+      checkpermissions,
+      validateData,
+    );
   }
 }
 
-export { exposePrismaCRUD, prisma, createCRUD };
+export { exposePrismaCRUD, prisma, createCRUD, schemaCache };

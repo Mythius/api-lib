@@ -4,10 +4,23 @@ import { Context } from "hono";
 
 export interface PrismaDelegate {
   findMany(args?: object): Promise<unknown[]>;
+  findFirst(args?: object): Promise<unknown | null>;
   create(args: { data: unknown }): Promise<unknown>;
   findUnique(args: { where: object }): Promise<unknown | null>;
   update(args: { where: object; data: unknown }): Promise<unknown>;
   delete(args: { where: object }): Promise<unknown>;
+  deleteMany(args: { where: object }): Promise<{ count: number }>;
+}
+
+export type PermissionResult = {
+  allowed: boolean;
+  rowLevelFilter?: Record<string, unknown>;
+};
+
+function normalizePermission(
+  result: PermissionResult | boolean,
+): PermissionResult {
+  return typeof result === "boolean" ? { allowed: result } : result;
 }
 
 export interface SchemaModelInfo {
@@ -20,7 +33,7 @@ export interface SchemaModelInfo {
 }
 
 // Maps Prisma error codes to HTTP responses
-function handlePrismaError(c: any, error: unknown) {
+export function handlePrismaError(c: any, error: unknown) {
   if (error instanceof Error && "code" in error) {
     const { code } = error as { code: string };
     switch (code) {
@@ -42,6 +55,16 @@ function handlePrismaError(c: any, error: unknown) {
   }
   console.error("Unexpected error:", error);
   return c.json({ error: "Internal server error" }, 500);
+}
+
+const SYSTEM_FIELDS = new Set(["id", "createdAt", "updatedAt"]);
+
+function stripSystemFields(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (!SYSTEM_FIELDS.has(k)) out[k] = v;
+  }
+  return out;
 }
 
 function parseId(param: string): string | null {
@@ -115,13 +138,28 @@ export function createCRUD(
   checkPermissions: (
     action: string,
     c: Context,
-  ) => boolean | Promise<boolean> = () => true,
+  ) =>
+    | PermissionResult
+    | boolean
+    | Promise<PermissionResult | boolean> = () => ({ allowed: true }),
+  validateData: (
+    c: Context,
+    path: string,
+    action: string,
+    data: any,
+  ) => string | null | Promise<string | null> = () => null,
 ) {
+  async function permit(action: string, c: Context): Promise<PermissionResult> {
+    return normalizePermission(await checkPermissions(action, c));
+  }
+
   app.get(path, async (c) => {
-    if (!(await checkPermissions("GET", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const perm = await permit("GET:" + path, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     try {
-      const items = await model.findMany();
+      const items = await model.findMany(
+        perm.rowLevelFilter ? { where: perm.rowLevelFilter } : undefined,
+      );
       return c.json(items);
     } catch (error) {
       return handlePrismaError(c, error);
@@ -129,12 +167,17 @@ export function createCRUD(
   });
 
   app.get(`${path}/:id`, async (c) => {
-    if (!(await checkPermissions("GET", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const perm = await permit("GET:" + path, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
-      const item = await model.findUnique({ where: { [pkField]: id } });
+      const where = perm.rowLevelFilter
+        ? { [pkField]: id, ...perm.rowLevelFilter }
+        : { [pkField]: id };
+      const item = perm.rowLevelFilter
+        ? await model.findFirst({ where })
+        : await model.findUnique({ where });
       if (!item) return c.json({ error: "Not found" }, 404);
       return c.json(item);
     } catch (error) {
@@ -143,14 +186,15 @@ export function createCRUD(
   });
 
   app.get(path + "/page/:page/:pageSize", async (c) => {
-    if (!(await checkPermissions("GET", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const perm = await permit("GET:" + path, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     const page = parseInt(c.req.param("page") || "1") ?? 1;
     const pageSize = parseInt(c.req.param("pageSize") || "10") ?? 10;
     try {
       const items = await model.findMany({
         skip: (page - 1) * pageSize,
         take: pageSize,
+        ...(perm.rowLevelFilter ? { where: perm.rowLevelFilter } : {}),
       });
       return c.json(items);
     } catch (error) {
@@ -159,11 +203,14 @@ export function createCRUD(
   });
 
   app.post(path + "/filter", async (c) => {
-    if (!(await checkPermissions("GET", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const perm = await permit("GET:" + path, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     try {
       const body = await c.req.json();
-      const items = await model.findMany({ where: body });
+      const where = perm.rowLevelFilter
+        ? { AND: [body, perm.rowLevelFilter] }
+        : body;
+      const items = await model.findMany({ where });
       return c.json(items);
     } catch (error) {
       if (error instanceof SyntaxError) {
@@ -174,11 +221,21 @@ export function createCRUD(
   });
 
   app.post(path, async (c) => {
-    if (!(await checkPermissions("POST", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const action = "POST:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     try {
       const body = await c.req.json();
-      const item = await model.create({ data: body });
+      const validErr = await validateData(c, path, action, body);
+      if (validErr) return c.json({ error: validErr }, 403);
+      if (perm.rowLevelFilter) {
+        for (const [key, val] of Object.entries(perm.rowLevelFilter)) {
+          if (key in body && body[key] !== val)
+            return c.json({ error: "Forbidden" }, 403);
+        }
+        Object.assign(body, perm.rowLevelFilter);
+      }
+      const item = await model.create({ data: stripSystemFields(body) });
       return c.json(item, 201);
     } catch (error) {
       if (error instanceof SyntaxError) {
@@ -189,13 +246,22 @@ export function createCRUD(
   });
 
   app.put(`${path}/:id`, async (c) => {
-    if (!(await checkPermissions("PUT", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const action = "PUT:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
       const body = await c.req.json();
-      const item = await model.update({ where: { [pkField]: id }, data: body });
+      const validErr = await validateData(c, path, action, body);
+      if (validErr) return c.json({ error: validErr }, 403);
+      if (perm.rowLevelFilter) {
+        const owned = await model.findFirst({
+          where: { [pkField]: id, ...perm.rowLevelFilter },
+        });
+        if (!owned) return c.json({ error: "Not found" }, 404);
+      }
+      const item = await model.update({ where: { [pkField]: id }, data: stripSystemFields(body) });
       return c.json(item);
     } catch (error) {
       if (error instanceof SyntaxError) {
@@ -206,12 +272,22 @@ export function createCRUD(
   });
 
   app.delete(`${path}/:id`, async (c) => {
-    if (!(await checkPermissions("DELETE", c)))
-      return c.json({ error: "Forbidden" }, 403);
+    const action = "DELETE:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
+    const validErr = await validateData(c, path, action, {});
+    if (validErr) return c.json({ error: validErr }, 403);
     try {
-      await model.delete({ where: { [pkField]: id } });
+      if (perm.rowLevelFilter) {
+        const result = await model.deleteMany({
+          where: { [pkField]: id, ...perm.rowLevelFilter },
+        });
+        if (result.count === 0) return c.json({ error: "Not found" }, 404);
+      } else {
+        await model.delete({ where: { [pkField]: id } });
+      }
       return c.json({ message: "Deleted" });
     } catch (error) {
       return handlePrismaError(c, error);
