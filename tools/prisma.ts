@@ -1,6 +1,6 @@
 import { PrismaClient } from "./generated/prisma";
 import { createCRUD, parseSchema, PermissionResult } from "./createCRUD.ts";
-import { Context } from "hono";
+import { Context, Hono } from "hono";
 
 const dbUrl = new URL(process.env.DATABASE_URL!);
 const scheme = dbUrl.protocol.replace(":", "");
@@ -32,7 +32,7 @@ const schemaCache = parseSchema();
 
 function exposePrismaCRUD(
   prefix: string = "api",
-  app: any,
+  app: Hono,
   checkpermissions: (
     action: string,
     c: Context,
