@@ -113,11 +113,11 @@ app.post("/auth", async (req, res) => {
     if (md5(cred.password) == auth[cred.username].password) {
       let token = md5(new Date().toISOString() + cred.username);
       delete sessions[auth[cred.username].token];
-      sessions[token] = { user: auth[cred.username] };
+      sessions[token] = { user: auth[cred.username], authType: "script" };
       sessions[token].username = cred.username;
       auth[cred.username].token = token;
       setAuthCookie(res, token);
-      res.json({ message: "Successfully Logged In" });
+      res.json({ message: "Successfully Logged In", token });
     } else {
       res.status(403).json({ error: "Couldn't log in" });
       return;
@@ -434,17 +434,22 @@ app.get("/auth/callback/cas", async (req, res) => {
 API.public(app);
 
 app.use(function (req, res, next) {
-  // Check cookie first, then fall back to Authorization header
-  let token = req.cookies.auth_token;
-  if (!token && req.headers.authorization) {
-    token = req.headers.authorization;
-    if (token.match(" ")) token = token.split(" ")[1];
+  const cookieToken = req.cookies.auth_token;
+  if (cookieToken && cookieToken in sessions) {
+    req.session = sessions[cookieToken];
+    return next();
   }
-  if (!token) return res.status(403).json({ error: "No credentials Sent" });
-  if (!(token in sessions))
-    return res.status(403).json({ error: "Invalid Token" });
-  req.session = sessions[token];
-  next();
+
+  if (req.headers.authorization) {
+    let token = req.headers.authorization;
+    if (token.match(" ")) token = token.split(" ")[1];
+    if (token in sessions && sessions[token].authType === "script") {
+      req.session = sessions[token];
+      return next();
+    }
+  }
+
+  return res.status(403).json({ error: "No credentials Sent" });
 });
 
 app.delete("/auth", (req, res) => {
