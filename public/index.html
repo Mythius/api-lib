@@ -18,8 +18,8 @@
       const $ = (q) => document.querySelector(q);
 
       async function main() {
-        let data = await request("/hello2");
-        $("p").innerHTML = data.message;
+        let data = await request("/user");
+        $("p").innerHTML = JSON.stringify(data);
       }
 
       function lg() {
