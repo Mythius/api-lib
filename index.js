@@ -37,6 +37,11 @@ const MS_GRAPH_URL = "https://graph.microsoft.com/v1.0/me";
 // own session from the payload and should not store or forward this token.
 const JWT_EXPIRY = "10m";
 
+// CAS session cookie keeps the user's identity so they can skip the OAuth
+// round-trip when they come back within the session window.
+const SESSION_COOKIE = "cas_session";
+const SESSION_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
 // ---------------------------------------------------------------------------
 // Load registered clients and RSA keys
 // ---------------------------------------------------------------------------
@@ -147,6 +152,34 @@ function redirectWithToken(res, redirectUri, token) {
   res.redirect(url.toString());
 }
 
+function setSessionCookie(res, userInfo) {
+  const token = jwt.sign(userInfo, privateKey, {
+    algorithm: "RS256",
+    expiresIn: SESSION_EXPIRY_SECONDS,
+    issuer: "centralized-auth",
+  });
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: SESSION_EXPIRY_SECONDS * 1000,
+  });
+}
+
+function getSessionUser(req) {
+  const token = req.cookies?.[SESSION_COOKIE];
+  if (!token) return null;
+  try {
+    const { iat, exp, iss, ...user } = jwt.verify(token, publicKey, {
+      algorithms: ["RS256"],
+      issuer: "centralized-auth",
+    });
+    return user;
+  } catch {
+    return null;
+  }
+}
+
 function initOAuth(req, res, provider, buildAuthUrl) {
   const { client_id, redirect_uri } = req.query;
 
@@ -165,6 +198,12 @@ function initOAuth(req, res, provider, buildAuthUrl) {
     return res
       .status(403)
       .json({ error: "redirect_uri is not allowed for this client" });
+  }
+
+  const sessionUser = getSessionUser(req);
+  if (sessionUser) {
+    const authToken = createJWT({ ...sessionUser, client_id });
+    return redirectWithToken(res, redirect_uri, authToken);
   }
 
   const state = generateState(redirect_uri, client_id, provider);
@@ -220,15 +259,16 @@ app.get("/auth/callback/google", async (req, res) => {
 
     const payload = ticket.getPayload();
 
-    const authToken = createJWT({
+    const userInfo = {
       sub: payload.sub,
       email: payload.email,
       name: payload.name,
       picture: payload.picture || null,
       provider: "google",
-      client_id: stateData.client_id,
-    });
+    };
 
+    setSessionCookie(res, userInfo);
+    const authToken = createJWT({ ...userInfo, client_id: stateData.client_id });
     redirectWithToken(res, stateData.redirect_uri, authToken);
   } catch (err) {
     console.error("[AUTH] Google callback error:", err.message);
@@ -306,15 +346,16 @@ app.get("/auth/callback/microsoft", async (req, res) => {
       return res.status(400).json({ error: "Could not retrieve user email" });
     }
 
-    const authToken = createJWT({
+    const userInfo = {
       sub: profile.id,
       email,
       name: profile.displayName || email,
       picture: null,
       provider: "microsoft",
-      client_id: stateData.client_id,
-    });
+    };
 
+    setSessionCookie(res, userInfo);
+    const authToken = createJWT({ ...userInfo, client_id: stateData.client_id });
     redirectWithToken(res, stateData.redirect_uri, authToken);
   } catch (err) {
     console.error("[AUTH] Microsoft callback error:", err.message);
