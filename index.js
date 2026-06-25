@@ -200,10 +200,12 @@ function initOAuth(req, res, provider, buildAuthUrl) {
       .json({ error: "redirect_uri is not allowed for this client" });
   }
 
-  const sessionUser = getSessionUser(req);
-  if (sessionUser) {
-    const authToken = createJWT({ ...sessionUser, client_id });
-    return redirectWithToken(res, redirect_uri, authToken);
+  if (req.query.prompt !== "login") {
+    const sessionUser = getSessionUser(req);
+    if (sessionUser) {
+      const authToken = createJWT({ ...sessionUser, client_id });
+      return redirectWithToken(res, redirect_uri, authToken);
+    }
   }
 
   const state = generateState(redirect_uri, client_id, provider);
@@ -361,6 +363,32 @@ app.get("/auth/callback/microsoft", async (req, res) => {
     console.error("[AUTH] Microsoft callback error:", err.message);
     res.status(500).json({ error: "Microsoft authentication failed" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Logout
+// ---------------------------------------------------------------------------
+
+// Clears the CAS session cookie. Optionally redirects to a registered
+// redirect_uri afterward — requires client_id so the URI can be validated.
+app.get("/auth/logout", (req, res) => {
+  res.clearCookie(SESSION_COOKIE, {
+    httpOnly: true,
+    secure: NODE_ENV === "production",
+    sameSite: "lax",
+  });
+
+  const { redirect_uri, client_id } = req.query;
+
+  if (redirect_uri && client_id) {
+    const client = findClient(client_id);
+    if (client && validateRedirectUri(client, redirect_uri)) {
+      return res.redirect(redirect_uri);
+    }
+    return res.status(403).json({ error: "Invalid client_id or redirect_uri" });
+  }
+
+  res.json({ success: true });
 });
 
 // ---------------------------------------------------------------------------
