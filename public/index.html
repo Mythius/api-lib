@@ -52,6 +52,23 @@
       background: #3730a3;
       color: #fff;
     }
+    .signout {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #2d3148;
+    }
+    .signout button {
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: 0.8rem;
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      transition: color 0.2s;
+    }
+    .signout button:hover { color: #f87171; }
+    .signout button.done { color: #4ade80; cursor: default; }
   </style>
 </head>
 <body>
@@ -63,6 +80,19 @@
       <a href="https://github.com/mythius" target="_blank">GitHub</a>
       <a href="/endpoints/html">Endpoints</a>
     </div>
+    <div class="signout">
+      <button id="signout-btn" onclick="signOut()">Sign out of SSO</button>
+    </div>
   </div>
+  <script>
+    async function signOut() {
+      const btn = document.getElementById('signout-btn');
+      btn.disabled = true;
+      btn.textContent = 'Signing out…';
+      await fetch('/auth/logout');
+      btn.textContent = 'Signed out';
+      btn.classList.add('done');
+    }
+  </script>
 </body>
 </html>
