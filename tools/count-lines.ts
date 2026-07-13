@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "fs";
-import { join, extname } from "path";
+import { join, extname, sep } from "path";
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "prisma/generated", "tools/generated", "historical"]);
 const SKIP_EXTS = new Set([".json", ".csv", ".lock", ".md", ".xlsx", ".wasm", ".png", ".patch", ".mjs"]);
@@ -14,7 +14,8 @@ function walk(dir: string, root: string): { file: string; lines: number }[] {
     const stat = statSync(abs);
 
     if (stat.isDirectory()) {
-      if ([...SKIP_DIRS].some((d) => rel === d || rel.startsWith(d + "/"))) continue;
+      const relNorm = rel.split(sep).join("/");
+      if ([...SKIP_DIRS].some((d) => relNorm === d || relNorm.startsWith(d + "/"))) continue;
       results.push(...walk(abs, root));
     } else {
       if (SKIP_FILES.has(entry)) continue;

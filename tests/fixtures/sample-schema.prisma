@@ -1,0 +1,14 @@
+// Fixture for parseSchema() tests — intentionally unrelated to prisma/schema.prisma
+// so the parser tests keep working no matter what models a forked project defines.
+model Author {
+  id    Int    @id @default(autoincrement())
+  name  String
+  books Book[]
+}
+
+model Book {
+  id       Int    @id @default(autoincrement())
+  title    String
+  authorId Int
+  author   Author @relation(fields: [authorId], references: [id])
+}
