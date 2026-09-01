@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import redis from "./redis.ts";
+import { redis } from "./redis.ts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -259,6 +259,8 @@ export function setupPublicRoutes(app: Hono): void {
         503,
       );
     }
+    const redirectAfter = c.req.query("redirect");
+    const safeRedirect = redirectAfter?.startsWith("/") ? redirectAfter : null;
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: GOOGLE_REDIRECT_URI,
@@ -270,6 +272,7 @@ export function setupPublicRoutes(app: Hono): void {
       access_type: "offline",
       prompt: "select_account",
     });
+    if (safeRedirect) params.set("state", encodeURIComponent(safeRedirect));
     return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
@@ -328,7 +331,10 @@ export function setupPublicRoutes(app: Hono): void {
       await loginCallback(session);
       await store.set(token, session);
       setAuthCookie(c, token);
-      return c.redirect("/");
+      const state = c.req.query("state");
+      const redirectTo = state ? decodeURIComponent(state) : "/";
+      const safeRedirectTo = redirectTo.startsWith("/") ? redirectTo : "/";
+      return c.redirect(safeRedirectTo);
     } catch (error) {
       console.error("Google OAuth callback error:", error);
       return c.json({ error: "Google authentication failed" }, 500);
@@ -354,6 +360,8 @@ export function setupPublicRoutes(app: Hono): void {
         503,
       );
     }
+    const redirectAfterMs = c.req.query("redirect");
+    const safeRedirectMs = redirectAfterMs?.startsWith("/") ? redirectAfterMs : null;
     const params = new URLSearchParams({
       client_id: process.env.MS_CLIENT_ID!,
       response_type: "code",
@@ -361,6 +369,7 @@ export function setupPublicRoutes(app: Hono): void {
       response_mode: "query",
       scope: "openid profile email User.Read",
     });
+    if (safeRedirectMs) params.set("state", encodeURIComponent(safeRedirectMs));
     return c.redirect(`${MS_AUTH_URL}?${params}`);
   });
 
@@ -434,7 +443,10 @@ export function setupPublicRoutes(app: Hono): void {
       await loginCallback(session);
       await store.set(token, session);
       setAuthCookie(c, token);
-      return c.redirect("/");
+      const msState = c.req.query("state");
+      const msRedirectTo = msState ? decodeURIComponent(msState) : "/";
+      const safeMsRedirect = msRedirectTo.startsWith("/") ? msRedirectTo : "/";
+      return c.redirect(safeMsRedirect);
     } catch (error) {
       console.error("Microsoft Sign-In error:", error);
       return c.json({ error: "Microsoft authentication failed" }, 500);

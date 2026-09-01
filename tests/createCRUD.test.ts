@@ -10,7 +10,10 @@ import {
 function matchesWhere(row: any, where: any): boolean {
   if (!where) return true;
   if ("AND" in where) return (where.AND as any[]).every((w) => matchesWhere(row, w));
-  return Object.entries(where).every(([k, v]) => row[k] === v);
+  // Compares ids by string value: parseId() now returns a number for
+  // numeric-looking path params (matching a real Int PK column), but these
+  // fixtures seed ids as plain strings regardless of the model's real PK type.
+  return Object.entries(where).every(([k, v]) => String(row[k]) === String(v));
 }
 
 function makeFakeModel(seed: any[] = []) {
@@ -57,6 +60,11 @@ function makeFakeModel(seed: any[] = []) {
       const before = rows.length;
       rows = rows.filter((r) => !matchesWhere(r, where));
       return { count: before - rows.length };
+    },
+    async updateMany({ where, data }: any) {
+      const matched = rows.filter((r) => matchesWhere(r, where));
+      matched.forEach((r) => Object.assign(r, data));
+      return { count: matched.length };
     },
   };
   return model;

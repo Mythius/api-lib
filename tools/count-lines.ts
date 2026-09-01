@@ -1,7 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "fs";
 import { join, extname, sep } from "path";
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "prisma/generated", "tools/generated", "historical"]);
+// Matched against just the directory's own name, at any depth — catches
+// nested node_modules too, not just one at repo root.
+const SKIP_DIR_NAMES = new Set(["node_modules", ".git"]);
+// Matched against the full root-relative path — for names that aren't safe
+// to skip everywhere by basename alone.
+const SKIP_DIR_PATHS = new Set(["prisma/generated", "tools/generated"]);
 const SKIP_EXTS = new Set([".json", ".csv", ".lock", ".md", ".xlsx", ".wasm", ".png", ".patch", ".mjs"]);
 const SKIP_FILES = new Set(["bun.lock", ".DS_Store", ".env"]);
 
@@ -14,8 +19,9 @@ function walk(dir: string, root: string): { file: string; lines: number }[] {
     const stat = statSync(abs);
 
     if (stat.isDirectory()) {
+      if (SKIP_DIR_NAMES.has(entry)) continue;
       const relNorm = rel.split(sep).join("/");
-      if ([...SKIP_DIRS].some((d) => relNorm === d || relNorm.startsWith(d + "/"))) continue;
+      if ([...SKIP_DIR_PATHS].some((d) => relNorm === d || relNorm.startsWith(d + "/"))) continue;
       results.push(...walk(abs, root));
     } else {
       if (SKIP_FILES.has(entry)) continue;
