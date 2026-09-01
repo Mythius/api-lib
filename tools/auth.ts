@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import Redis from "ioredis";
+import redis from "./redis.ts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -25,6 +25,11 @@ const MS_TOKEN_URL =
 const MS_GRAPH_URL = "https://graph.microsoft.com/v1.0/me";
 
 const SESSION_TTL = 7 * 24 * 60 * 60; // 7 days in seconds
+
+// Dev-only: skip SSO and log in as this email on every request with no session cookie.
+// Still goes through the normal onLogin lookup, so DB role/permissions are unaffected.
+const DEV_BYPASS_EMAIL =
+  process.env.NODE_ENV !== "production" ? process.env.DEV_BYPASS_EMAIL || null : null;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,33 +79,22 @@ class MemoryStore implements SessionStore {
 }
 
 class RedisStore implements SessionStore {
-  private redis: Redis;
-
-  constructor() {
-    this.redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
-  }
-
   private key(token: string) {
     return `session:${token}`;
   }
 
   async get(token: string) {
-    const data = await this.redis.get(this.key(token));
+    const data = await redis.get(this.key(token));
     return data ? (JSON.parse(data) as Session) : null;
   }
   async set(token: string, session: Session) {
-    await this.redis.set(
-      this.key(token),
-      JSON.stringify(session),
-      "EX",
-      SESSION_TTL,
-    );
+    await redis.set(this.key(token), JSON.stringify(session), "EX", SESSION_TTL);
   }
   async delete(token: string) {
-    await this.redis.del(this.key(token));
+    await redis.del(this.key(token));
   }
   async has(token: string) {
-    return (await this.redis.exists(this.key(token))) > 0;
+    return (await redis.exists(this.key(token))) > 0;
   }
 }
 
@@ -520,6 +514,18 @@ export function setupMiddleware(app: Hono): void {
           : authHeader;
       }
     }
+    if (!token && DEV_BYPASS_EMAIL) {
+      const session: Session = {
+        user: { priv: 1, token: "" },
+        username: DEV_BYPASS_EMAIL,
+        email: DEV_BYPASS_EMAIL,
+        cas_data: { name: DEV_BYPASS_EMAIL },
+      };
+      if (onLoginCallback) await onLoginCallback(session);
+      (c as any).set("session", session);
+      return next();
+    }
+
     if (!token) return c.json({ error: "No credentials Sent" }, 403);
     const session = await store.get(token);
     if (!session) return c.json({ error: "Invalid Token" }, 403);

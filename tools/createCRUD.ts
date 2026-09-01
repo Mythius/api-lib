@@ -2,6 +2,29 @@ import { Hono } from "hono";
 import { readFileSync } from "fs";
 import { Context } from "hono";
 
+// Set DEBUG_CRUD=1 in your .env to enable per-request permission/validation logging.
+const DEBUG_CRUD = process.env.DEBUG_CRUD === "1";
+
+function crudLog(
+  event: "PERMISSION_DENIED" | "VALIDATION_FAILED",
+  action: string,
+  c: Context,
+  extra?: Record<string, unknown>,
+) {
+  if (!DEBUG_CRUD) return;
+  const session = (c as any).get?.("session");
+  const user = session?.db
+    ? { id: session.db.id, role: session.db.role, orgId: session.db.organizationId }
+    : null;
+  console.log(`[CRUD:${event}]`, {
+    action,
+    url: c.req.url,
+    method: c.req.method,
+    user,
+    ...extra,
+  });
+}
+
 export interface PrismaDelegate {
   findMany(args?: object): Promise<unknown[]>;
   findFirst(args?: object): Promise<unknown | null>;
@@ -154,8 +177,9 @@ export function createCRUD(
   }
 
   app.get(path, async (c) => {
-    const perm = await permit("GET:" + path, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    const action = "GET:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c); return c.json({ error: "Forbidden" }, 403); }
     try {
       const items = await model.findMany(
         perm.rowLevelFilter ? { where: perm.rowLevelFilter } : undefined,
@@ -167,8 +191,9 @@ export function createCRUD(
   });
 
   app.get(`${path}/:id`, async (c) => {
-    const perm = await permit("GET:" + path, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    const action = "GET:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c, { id: c.req.param("id") }); return c.json({ error: "Forbidden" }, 403); }
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
@@ -186,8 +211,9 @@ export function createCRUD(
   });
 
   app.get(path + "/page/:page/:pageSize", async (c) => {
-    const perm = await permit("GET:" + path, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    const action = "GET:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c); return c.json({ error: "Forbidden" }, 403); }
     const page = parseInt(c.req.param("page") || "1") ?? 1;
     const pageSize = parseInt(c.req.param("pageSize") || "10") ?? 10;
     try {
@@ -203,8 +229,9 @@ export function createCRUD(
   });
 
   app.post(path + "/filter", async (c) => {
-    const perm = await permit("GET:" + path, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    const action = "GET:" + path;
+    const perm = await permit(action, c);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action + " (filter)", c); return c.json({ error: "Forbidden" }, 403); }
     try {
       const body = await c.req.json();
       const where = perm.rowLevelFilter
@@ -223,11 +250,11 @@ export function createCRUD(
   app.post(path, async (c) => {
     const action = "POST:" + path;
     const perm = await permit(action, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c); return c.json({ error: "Forbidden" }, 403); }
     try {
       const body = await c.req.json();
       const validErr = await validateData(c, path, action, body);
-      if (validErr) return c.json({ error: validErr }, 403);
+      if (validErr) { crudLog("VALIDATION_FAILED", action, c, { error: validErr, body }); return c.json({ error: validErr }, 403); }
       if (perm.rowLevelFilter) {
         for (const [key, val] of Object.entries(perm.rowLevelFilter)) {
           if (key in body && body[key] !== val)
@@ -248,18 +275,31 @@ export function createCRUD(
   app.put(`${path}/:id`, async (c) => {
     const action = "PUT:" + path;
     const perm = await permit(action, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c, { id: c.req.param("id") }); return c.json({ error: "Forbidden" }, 403); }
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
       const body = await c.req.json();
+      const clientUpdatedAt: string | undefined = body.updatedAt;
       const validErr = await validateData(c, path, action, body);
-      if (validErr) return c.json({ error: validErr }, 403);
+      if (validErr) { crudLog("VALIDATION_FAILED", action, c, { id, error: validErr, body }); return c.json({ error: validErr }, 403); }
       if (perm.rowLevelFilter) {
         const owned = await model.findFirst({
           where: { [pkField]: id, ...perm.rowLevelFilter },
-        });
+        }) as Record<string, unknown> | null;
         if (!owned) return c.json({ error: "Not found" }, 404);
+        if (clientUpdatedAt && owned.updatedAt) {
+          const serverMs = (owned.updatedAt as Date).getTime();
+          const clientMs = new Date(clientUpdatedAt).getTime();
+          if (serverMs !== clientMs) return c.json({ error: "conflict", serverUpdatedAt: owned.updatedAt }, 412);
+        }
+      } else if (clientUpdatedAt) {
+        const current = await model.findFirst({ where: { [pkField]: id } }) as Record<string, unknown> | null;
+        if (current?.updatedAt) {
+          const serverMs = (current.updatedAt as Date).getTime();
+          const clientMs = new Date(clientUpdatedAt).getTime();
+          if (serverMs !== clientMs) return c.json({ error: "conflict", serverUpdatedAt: current.updatedAt }, 412);
+        }
       }
       const item = await model.update({ where: { [pkField]: id }, data: stripSystemFields(body) });
       return c.json(item);
@@ -274,11 +314,11 @@ export function createCRUD(
   app.delete(`${path}/:id`, async (c) => {
     const action = "DELETE:" + path;
     const perm = await permit(action, c);
-    if (!perm.allowed) return c.json({ error: "Forbidden" }, 403);
+    if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c, { id: c.req.param("id") }); return c.json({ error: "Forbidden" }, 403); }
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     const validErr = await validateData(c, path, action, {});
-    if (validErr) return c.json({ error: validErr }, 403);
+    if (validErr) { crudLog("VALIDATION_FAILED", action, c, { id, error: validErr }); return c.json({ error: validErr }, 403); }
     try {
       if (perm.rowLevelFilter) {
         const result = await model.deleteMany({
