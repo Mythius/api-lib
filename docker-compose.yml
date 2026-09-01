@@ -4,10 +4,12 @@ services:
     env_file:
       - .env
     environment:
+      - NODE_ENV=production
+      - PORT=80
       - DATABASE_URL=postgresql://test:test@db:5432/test_db
       - REDIS_URL=redis://redis:6379
     ports:
-      - "3000:80"
+      - "${HOST_PORT:-3001}:80"
     depends_on:
       db:
         condition: service_healthy
