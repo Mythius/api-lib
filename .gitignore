@@ -13,3 +13,4 @@ dist/*
 *.log
 /tools/generated
 /uploads
+version

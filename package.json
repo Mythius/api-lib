@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "start": "bun run index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "set-version": "bun run tools/setversion.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

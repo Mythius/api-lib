@@ -1,0 +1,1 @@
+Bun.write("version", `1.1.${new Date().toISOString().slice(0, 10).replace(/-/g, ".")}.${Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().slice(0, 7)}`);
