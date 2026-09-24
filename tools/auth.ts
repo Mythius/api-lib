@@ -1,6 +1,13 @@
 import { Hono } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { redis } from "./redis.ts";
+import {
+  isApiKey,
+  apiKeysEnabled,
+  verifyApiKey,
+  authorizeApiKey,
+  type ApiKeyRecord,
+} from "./apiKeys.ts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -49,6 +56,10 @@ export interface Session {
   cas_data?: Record<string, unknown>;
   photoUrl?: string | null;
   db?: any | null;
+  // Set when the request authenticated with an API key (see tools/apiKeys.ts)
+  // instead of a login session. There's no human behind it, so the identity
+  // fields above are unset unless an onApiKeyLogin callback fills them.
+  apiKey?: { id: string; label: string; role: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +153,19 @@ let onLoginCallback: ((session: Session) => Promise<void>) | null = null;
 
 export function setOnLoginCallback(cb: (session: Session) => Promise<void>): void {
   onLoginCallback = cb;
+}
+
+let onApiKeyLoginCallback:
+  | ((session: Session, key: ApiKeyRecord) => Promise<void>)
+  | null = null;
+
+// Runs on every API-key-authenticated request, after the key is verified and
+// authorized — the hook for attaching project data to the session, e.g. if
+// ApiKey gains a userId column: `session.db = await prisma.user.findUnique(...)`.
+export function setOnApiKeyLogin(
+  cb: (session: Session, key: ApiKeyRecord) => Promise<void>,
+): void {
+  onApiKeyLoginCallback = cb;
 }
 
 async function loginCallback(session: Session): Promise<void> {
@@ -539,6 +563,25 @@ export function setupMiddleware(app: Hono): void {
     }
 
     if (!token) return c.json({ error: "No credentials Sent" }, 403);
+
+    if (isApiKey(token) && (await apiKeysEnabled())) {
+      const key = await verifyApiKey(token);
+      if (!key) return c.json({ error: "Invalid API Key" }, 403);
+      if (!(await authorizeApiKey(key, c))) {
+        return c.json({ error: "API key not permitted for this route" }, 403);
+      }
+      const session: Session = {
+        // Maps onto the existing priv levels so priv-gated routes (e.g.
+        // /newuser) treat an ALL key like an admin and anything else like a
+        // regular user.
+        user: { priv: key.role === "ALL" ? 1 : 0, token: "" },
+        apiKey: { id: key.id, label: key.label, role: key.role },
+      };
+      if (onApiKeyLoginCallback) await onApiKeyLoginCallback(session, key);
+      (c as any).set("session", session);
+      return next();
+    }
+
     const session = await store.get(token);
     if (!session) return c.json({ error: "Invalid Token" }, 403);
     (c as any).set("session", session);

@@ -59,14 +59,25 @@ function exposePrismaCRUD(
     data: any,
   ) => string | null | Promise<string | null> = () => null,
   logMutation?: (entry: MutationLogEntry) => Promise<void>,
+  // Models to leave out of the generated routes and `_schema` (Prisma client
+  // keys, i.e. camelCase). apiKey is excluded by default: generic CRUD over it
+  // would let any authenticated caller list key hashes or mint new keys —
+  // manage keys through tools/apiKeys.ts instead. Add your own internal
+  // models here; pass [] only if you really mean to expose everything.
+  excludeModels: string[] = ["apiKey"],
 ) {
   const base = prefix.startsWith("/") ? prefix : `/${prefix}`;
+  const excluded = new Set(excludeModels);
+  const exposedSchema = Object.fromEntries(
+    Object.entries(schemaCache).filter(([model]) => !excluded.has(model)),
+  );
 
-  app.get(`${base}/_schema`, (c: any) => c.json(schemaCache));
+  app.get(`${base}/_schema`, (c: any) => c.json(exposedSchema));
   for (const model of Object.keys(prisma)) {
     if (model.startsWith("_")) continue;
     if (model.startsWith("$")) continue;
     if (model === "constructor") continue;
+    if (excluded.has(model)) continue;
 
     const pkField = schemaCache[model]?.primaryKey || "id";
     const hasSoftDelete = schemaCache[model]?.fields.includes("isDeleted") ?? false;
@@ -79,6 +90,7 @@ function exposePrismaCRUD(
       validateData,
       logMutation,
       hasSoftDelete,
+      schemaCache[model]?.fields,
     );
   }
 }

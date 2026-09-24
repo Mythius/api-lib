@@ -75,10 +75,11 @@ function mountCRUD(
   opts: {
     checkPermissions?: Parameters<typeof createCRUD>[4];
     validateData?: Parameters<typeof createCRUD>[5];
+    scalarFields?: string[];
   } = {},
 ) {
   const app = new Hono();
-  createCRUD(app, "items", model, "id", opts.checkPermissions, opts.validateData);
+  createCRUD(app, "items", model, "id", opts.checkPermissions, opts.validateData, undefined, false, opts.scalarFields);
   return app;
 }
 
@@ -216,6 +217,114 @@ describe("createCRUD", () => {
     expect(await res.json()).toEqual({ error: "name is required" });
   });
 
+  const nestedEscalation = {
+    name: "x",
+    organization: { update: { users: { update: { where: { id: 1 }, data: { role: "ADMIN" } } } } },
+  };
+
+  for (const method of ["POST", "PUT"] as const) {
+    test(`${method} rejects nested relation writes not in scalarFields`, async () => {
+      const model = makeFakeModel([{ id: "1", name: "a" }]);
+      let reached = false;
+      const app = mountCRUD(model, {
+        scalarFields: ["id", "name"],
+        validateData: () => ((reached = true), null),
+      });
+      const res = await app.request(method === "POST" ? "/items" : "/items/1", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nestedEscalation),
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toContain("organization");
+      expect(reached).toBe(false);
+    });
+
+    test(`${method} without scalarFields still rejects object values`, async () => {
+      const app = mountCRUD(makeFakeModel([{ id: "1", name: "a" }]));
+      const res = await app.request(method === "POST" ? "/items" : "/items/1", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nestedEscalation),
+      });
+      expect(res.status).toBe(400);
+    });
+  }
+
+  test("PUT still silently drops system fields echoed back by the client", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "old" }]), { scalarFields: ["id", "name"] });
+    const res = await app.request("/items/1", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "1", name: "new", createdAt: "2020-01-01T00:00:00Z" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: "1", name: "new" });
+  });
+
+  test("rowLevelFilter rejects an update that moves a row out of scope", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "a", ownerId: "u1" }]), {
+      checkPermissions: () => ({ allowed: true, rowLevelFilter: { ownerId: "u1" } }),
+    });
+    const res = await app.request("/items/1", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId: "someone-else" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  async function filter(app: Hono, body: unknown) {
+    return app.request("/items/filter", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("POST /filter rejects relation filters not in scalarFields", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "a" }]), { scalarFields: ["id", "name"] });
+    const res = await filter(app, { organization: { users: { some: { role: "ADMIN" } } } });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("organization");
+  });
+
+  test("POST /filter rejects relation filters hidden inside AND/OR/NOT", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "a" }]), { scalarFields: ["id", "name"] });
+    for (const body of [
+      { AND: [{ name: "a" }, { organization: { is: { name: "x" } } }] },
+      { OR: [{ organization: { name: "x" } }] },
+      { NOT: { organization: { name: "x" } } },
+    ]) {
+      expect((await filter(app, body)).status).toBe(400);
+    }
+  });
+
+  test("POST /filter without scalarFields rejects non-scalar operators", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "a" }]));
+    expect((await filter(app, { organization: { users: { some: {} } } })).status).toBe(400);
+    expect((await filter(app, { owner: { is: { role: "ADMIN" } } })).status).toBe(400);
+    expect((await filter(app, { name: { not: { some: {} } } })).status).toBe(400);
+  });
+
+  test("POST /filter still allows scalar operators and logical combinators", async () => {
+    const app = mountCRUD(makeFakeModel([{ id: "1", name: "a" }]), { scalarFields: ["id", "name"] });
+    for (const body of [
+      { name: "a" },
+      { name: { contains: "a", mode: "insensitive" } },
+      { name: { not: { in: ["b", "c"] } } },
+      { OR: [{ name: "a" }, { id: { gte: 1 } }], NOT: { name: null } },
+    ]) {
+      expect((await filter(app, body)).status).not.toBe(400);
+    }
+  });
+
+  test("POST /filter rejects a non-object body", async () => {
+    const app = mountCRUD(makeFakeModel());
+    expect((await filter(app, [{ name: "a" }])).status).toBe(400);
+    expect((await filter(app, null)).status).toBe(400);
+  });
+
   test("malformed JSON body returns 400 instead of 500", async () => {
     const app = mountCRUD(makeFakeModel());
     const res = await app.request("/items", {
@@ -275,6 +384,11 @@ describe("parseSchema", () => {
       referencedModel: "author",
       referencedField: "id",
     });
+  });
+
+  test("excludes to-one back-relations that carry no @relation attribute", () => {
+    expect(schema.author!.fields).not.toContain("profile");
+    expect(schema.author!.fields).toContain("tags");
   });
 
   test("collects scalar fields but excludes relation arrays", () => {

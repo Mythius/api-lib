@@ -6,7 +6,8 @@
   "scripts": {
     "start": "bun run index.ts",
     "test": "bun test",
-    "set-version": "bun run tools/setversion.ts"
+    "set-version": "bun run tools/setversion.ts",
+    "apikeys": "bun run tools/apiKeyCli.ts"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -92,6 +92,103 @@ function stripSystemFields(data: Record<string, unknown>): Record<string, unknow
   return out;
 }
 
+// Validates a POST/PUT body before it reaches Prisma. Prisma treats any
+// relation field in `data` as a nested write (create/connect/update/upsert/
+// delete on the related model), so passing the body through as-is lets a
+// caller who may only edit their own row reach into related rows — e.g.
+// `{ organization: { update: { users: { update: { where: ..., data: { role:
+// "ADMIN" } } } } } }` on a row the caller owns escalates their privileges
+// even though validateData/rowLevelFilter only ever see top-level scalars. So:
+//   - with `scalarFields` (exposePrismaCRUD passes the model's scalar
+//     columns + FK columns from parseSchema), any other key is rejected;
+//   - without it (a hand-mounted createCRUD with no schema info), object
+//     values are rejected outright since that's the shape every nested write
+//     takes — pass scalarFields to allow Json columns.
+// System fields are still silently dropped rather than rejected, since
+// clients routinely PUT back a row exactly as they GET it.
+function sanitizeWriteBody(
+  body: unknown,
+  scalarFields?: Set<string>,
+): { data: Record<string, unknown> } | { error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { error: "Request body must be a JSON object" };
+  }
+  const data = stripSystemFields(body as Record<string, unknown>);
+  const rejected = Object.entries(data)
+    .filter(([k, v]) =>
+      scalarFields
+        ? !scalarFields.has(k)
+        : v !== null && typeof v === "object",
+    )
+    .map(([k]) => k);
+  if (rejected.length) {
+    return { error: `Field(s) not writable through this endpoint: ${rejected.join(", ")}` };
+  }
+  return { data };
+}
+
+// Operators Prisma accepts inside a scalar (or Json) field's filter. Relation
+// filters use a disjoint vocabulary (some/every/none/is/isNot, or the related
+// model's own field names), so allowing only these keeps a filter from
+// reaching across relations even when no field list is available.
+const SCALAR_FILTER_OPS = new Set([
+  "equals", "in", "notIn", "lt", "lte", "gt", "gte", "not",
+  "contains", "startsWith", "endsWith", "mode", "search",
+  "has", "hasSome", "hasEvery", "isEmpty", "isSet",
+  "path", "string_contains", "string_starts_with", "string_ends_with",
+  "array_contains", "array_starts_with", "array_ends_with",
+]);
+const LOGICAL_OPS = new Set(["AND", "OR", "NOT"]);
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+// Validates a /filter body before it's used as a Prisma `where`. Without
+// this, a relation filter like `{ organization: { users: { some: { role:
+// "ADMIN", email: { startsWith: "a" } } } } }` lets a caller probe rows in
+// other models — and outside their rowLevelFilter scope — one guess at a
+// time, since rowLevelFilter only narrows the top-level model. Returns an
+// error naming the first offending path, or null if the clause is safe.
+function validateWhere(
+  where: unknown,
+  scalarFields?: Set<string>,
+  path = "",
+): string | null {
+  if (!isPlainObject(where)) return `${path || "body"} must be an object`;
+  for (const [key, value] of Object.entries(where)) {
+    const here = path ? `${path}.${key}` : key;
+    if (LOGICAL_OPS.has(key)) {
+      const clauses = Array.isArray(value) ? value : [value];
+      for (const [i, clause] of clauses.entries()) {
+        const err = validateWhere(clause, scalarFields, Array.isArray(value) ? `${here}[${i}]` : here);
+        if (err) return err;
+      }
+      continue;
+    }
+    if (scalarFields && !scalarFields.has(key)) {
+      return `Cannot filter on ${here}`;
+    }
+    const err = validateScalarFilter(value, here);
+    if (err) return err;
+  }
+  return null;
+}
+
+function validateScalarFilter(value: unknown, path: string): string | null {
+  // Primitives, null, Dates-as-strings and arrays are plain equality/list
+  // values — only an object can open up a nested (relation) filter.
+  if (!isPlainObject(value)) return null;
+  for (const [op, operand] of Object.entries(value)) {
+    if (!SCALAR_FILTER_OPS.has(op)) return `Cannot filter on ${path}.${op}`;
+    if (op === "not") {
+      const err = validateScalarFilter(operand, `${path}.not`);
+      if (err) return err;
+    }
+  }
+  return null;
+}
+
 function parseId(param: string): string | number | null {
   if (!param) return null;
   const n = parseInt(param, 10);
@@ -169,6 +266,13 @@ export function parseSchema(
   const result: Record<string, SchemaModelInfo> = {};
 
   const modelRegex = /^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm;
+  // Needed up front so relation fields can be told apart from scalars even
+  // when they carry no @relation attribute (the back side of a 1:1, e.g.
+  // `profile Profile?`) — those must never land in `fields`, which doubles as
+  // the write allow-list in createCRUD.
+  const modelNames = new Set(
+    [...schemaText.matchAll(modelRegex)].map((m) => m[1]!),
+  );
   let match;
   while ((match = modelRegex.exec(schemaText)) !== null) {
     const modelName = match[1]!;
@@ -191,7 +295,6 @@ export function parseSchema(
 
       const fieldName = fieldMatch[1]!;
       const fieldType = fieldMatch[2]!;
-      const isArray = fieldMatch[3] === "[]";
 
       if (trimmed.includes("@id")) {
         primaryKey = fieldName;
@@ -208,7 +311,7 @@ export function parseSchema(
             fieldType.charAt(0).toLowerCase() + fieldType.slice(1),
           referencedField: refField,
         };
-      } else if (!isArray && !trimmed.includes("@relation")) {
+      } else if (!modelNames.has(fieldType) && !trimmed.includes("@relation")) {
         fields.push(fieldName);
         fieldTypes[fieldName] = fieldType;
       }
@@ -249,7 +352,14 @@ export function createCRUD(
   ) => string | null | Promise<string | null> = () => null,
   logMutation?: (entry: MutationLogEntry) => Promise<void>,
   hasSoftDelete = false,
+  // The model's own columns (scalars + FK columns, no relation fields) — the
+  // allow-list for POST/PUT bodies (see sanitizeWriteBody) and /filter
+  // where-clauses (see validateWhere). exposePrismaCRUD fills this from the
+  // parsed schema; omit it only for hand-mounted routes.
+  scalarFields?: string[],
 ) {
+  const scalars = scalarFields ? new Set(scalarFields) : undefined;
+
   async function permit(action: string, c: Context): Promise<PermissionResult> {
     return normalizePermission(await checkPermissions(action, c));
   }
@@ -327,11 +437,12 @@ export function createCRUD(
     if (!perm.allowed) { crudLog("PERMISSION_DENIED", action + " (filter)", c); return c.json({ error: "Forbidden" }, 403); }
     try {
       const body = await c.req.json();
+      const whereErr = validateWhere(body, scalars);
+      if (whereErr) { crudLog("VALIDATION_FAILED", action + " (filter)", c, { error: whereErr }); return c.json({ error: whereErr }, 400); }
       const combined = perm.rowLevelFilter
         ? { AND: [body, perm.rowLevelFilter] }
         : body;
-      const isPlainObject = body && typeof body === "object";
-      const where = withDefaults(c, combined, isPlainObject && "isDeleted" in body);
+      const where = withDefaults(c, combined, "isDeleted" in body);
 
       // Optional skip/take via query params — additive, so existing callers
       // that only ever send a where-clause body keep their current unbounded
@@ -367,7 +478,9 @@ export function createCRUD(
     const perm = await permit(action, c);
     if (!perm.allowed) { crudLog("PERMISSION_DENIED", action, c); return c.json({ error: "Forbidden" }, 403); }
     try {
-      const body = await c.req.json();
+      const sanitized = sanitizeWriteBody(await c.req.json(), scalars);
+      if ("error" in sanitized) { crudLog("VALIDATION_FAILED", action, c, { error: sanitized.error }); return c.json({ error: sanitized.error }, 400); }
+      const body = sanitized.data;
       const validErr = await validateData(c, path, action, body);
       if (validErr) { crudLog("VALIDATION_FAILED", action, c, { error: validErr, body }); return c.json({ error: validErr }, 403); }
       if (perm.rowLevelFilter) {
@@ -377,7 +490,7 @@ export function createCRUD(
         }
         Object.assign(body, perm.rowLevelFilter);
       }
-      const item = await model.create({ data: stripSystemFields(body) });
+      const item = await model.create({ data: body });
       await logMutation?.({ action: "create", recordId: (item as any)[pkField], data: item, userEmail: (c as any).get("session")?.email, orgId: (c as any).get("session")?.db?.orgId ?? null }).catch(console.error);
       return c.json(item, 201);
     } catch (error) {
@@ -395,11 +508,20 @@ export function createCRUD(
     const id = parseId(c.req.param("id"));
     if (id === null) return c.json({ error: "Invalid ID" }, 400);
     try {
-      const body = await c.req.json();
-      const clientUpdatedAt: string | undefined = body.updatedAt;
+      const raw = await c.req.json();
+      const clientUpdatedAt: string | undefined = raw?.updatedAt;
+      const sanitized = sanitizeWriteBody(raw, scalars);
+      if ("error" in sanitized) { crudLog("VALIDATION_FAILED", action, c, { id, error: sanitized.error }); return c.json({ error: sanitized.error }, 400); }
+      const body = sanitized.data;
       const validErr = await validateData(c, path, action, body);
       if (validErr) { crudLog("VALIDATION_FAILED", action, c, { id, error: validErr, body }); return c.json({ error: validErr }, 403); }
       if (perm.rowLevelFilter) {
+        // Same rule as POST: an update can't move a row out of the caller's
+        // scope by rewriting the column the scope is keyed on.
+        for (const [key, val] of Object.entries(perm.rowLevelFilter)) {
+          if (key in body && body[key] !== val)
+            return c.json({ error: "Forbidden" }, 403);
+        }
         const owned = await model.findFirst({
           where: scopedWhere(pkField, id, perm.rowLevelFilter),
         }) as Record<string, unknown> | null;
@@ -417,8 +539,8 @@ export function createCRUD(
           if (serverMs !== clientMs) return c.json({ error: "conflict", serverUpdatedAt: current.updatedAt }, 412);
         }
       }
-      const item = await model.update({ where: { [pkField]: id }, data: stripSystemFields(body) });
-      await logMutation?.({ action: "update", recordId: id, data: stripSystemFields(body), userEmail: (c as any).get("session")?.email, orgId: (c as any).get("session")?.db?.orgId ?? null }).catch(console.error);
+      const item = await model.update({ where: { [pkField]: id }, data: body });
+      await logMutation?.({ action: "update", recordId: id, data: body, userEmail: (c as any).get("session")?.email, orgId: (c as any).get("session")?.db?.orgId ?? null }).catch(console.error);
       return c.json(item);
     } catch (error) {
       if (error instanceof SyntaxError) {

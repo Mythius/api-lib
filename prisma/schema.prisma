@@ -7,19 +7,22 @@ datasource db {
   provider = "postgresql"
 }
 
-model Post {
-  id        Int       @id @default(autoincrement())
-  title     String
-  content   String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  comments  Comment[]
-}
-
-model Comment {
-  id        Int      @id @default(autoincrement())
-  content   String
-  postId    Int
-  post      Post     @relation(fields: [postId], references: [id])
-  createdAt DateTime @default(now())
+// Machine credentials for scripts/services, sent as `Authorization: Bearer <key>`.
+// Optional: delete this model + ApiKeyRole and API keys switch off entirely.
+// Manage with `bun run apikeys`; request-time check is in tools/auth.ts, policy
+// in tools/apiKeys.ts. Only the sha256 hash is stored. Never exposed through
+// the auto CRUD routes (see excludeModels in tools/prisma.ts). Extra columns
+// (userId, orgId, expiresAt, ...) are fine — use setOnApiKeyLogin /
+// setApiKeyAuthorizer to act on them. `role` is free-form: the default policy
+// knows "ALL" (everything, treated as priv 1) and "READ_ONLY" (GET/HEAD + CRUD
+// /filter); any other value is denied until your authorizer handles it.
+model ApiKey {
+  id         String    @id @default(uuid())
+  label      String
+  prefix     String
+  hashedKey  String    @unique
+  role       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
 }

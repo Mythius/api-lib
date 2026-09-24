@@ -2,13 +2,22 @@
 // so the parser tests keep working no matter what models a forked project defines.
 model Author {
   id    Int    @id @default(autoincrement())
-  name  String
-  books Book[]
+  name    String
+  tags    String[]
+  books   Book[]
+  profile Profile?
 }
 
 model Book {
   id       Int    @id @default(autoincrement())
   title    String
   authorId Int
+  author   Author @relation(fields: [authorId], references: [id])
+}
+
+model Profile {
+  id       Int    @id @default(autoincrement())
+  bio      String
+  authorId Int    @unique
   author   Author @relation(fields: [authorId], references: [id])
 }

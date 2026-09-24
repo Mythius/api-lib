@@ -13,3 +13,8 @@ S3_ACCESS_KEY=
 S3_SECRET_KEY=
 S3_BUCKET=
 S3_PUBLIC_URL=
+
+# API keys (tools/apiKeys.ts) — only used when prisma/schema.prisma has an
+# ApiKey model. Prefix every key starts with; pick one per project up front,
+# since changing it later invalidates existing keys.
+API_KEY_PREFIX=ak_
