@@ -39,7 +39,7 @@ Because Hono matches middleware/routes in registration order, anything added aft
 - Local username/password (md5-hashed, stored in `auth.json` — a flat JSON file, not a database table).
 - Google OAuth (redirect flow, or one-click credential verification via `/auth/google-oneclick`).
 - Microsoft OAuth (redirect flow via Microsoft Graph).
-- CAS (delegates to an external CAS server when `CAS_SERVER_URL`/`CAS_CLIENT_ID` are set — Google/Microsoft routes redirect to the CAS server instead of handling OAuth locally when CAS is configured).
+- CAS (delegates to an external CAS server when `CAS_SERVER_URL`/`CAS_CLIENT_ID` are set — Google/Microsoft routes redirect to the CAS server instead of handling OAuth locally when CAS is configured). `GET /auth/email` is CAS-only: it redirects to the CAS server's plain email login and returns a 503 when CAS isn't configured; all CAS logins come back through `/auth/callback/cas`.
 
 Google/Microsoft login accept a `?redirect=/some/path` query param on the initial `/auth/google` or `/auth/microsoft` request (must start with `/`) and carry it through the OAuth `state` param, so the callback lands back on that path instead of always `/`.
 

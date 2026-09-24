@@ -68,6 +68,18 @@ function microsoftOAuth() {
   }
 }
 
+function emailOAuth() {
+  if (CAS_CONFIG) {
+    const params = new URLSearchParams({
+      client_id: CAS_CONFIG.clientId,
+      redirect_uri: CAS_CONFIG.redirectUri,
+    });
+    window.location.href = `${CAS_CONFIG.serverUrl}/auth/email?${params}`;
+  } else {
+    window.location.href = "/auth/email";
+  }
+}
+
 async function logout() {
   let req = await fetch("/auth", {
     method: "DELETE",

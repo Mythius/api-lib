@@ -264,6 +264,27 @@ export function setupPublicRoutes(app: Hono): void {
     }
   });
 
+  // Plain email login is handled entirely by the CAS server (no local
+  // implementation), which returns through /auth/callback/cas like the
+  // Google/Microsoft CAS redirects do.
+  app.get("/auth/email", (c) => {
+    if (!CAS_SERVER_URL || !CAS_CLIENT_ID) {
+      return c.json(
+        {
+          error: "Email login not configured",
+          message: "Email login is provided by the CAS server.",
+          hint: "Add CAS_SERVER_URL and CAS_CLIENT_ID to your .env file.",
+        },
+        503,
+      );
+    }
+    const params = new URLSearchParams({
+      client_id: CAS_CLIENT_ID,
+      redirect_uri: CAS_CALLBACK_URL,
+    });
+    return c.redirect(`${CAS_SERVER_URL}/auth/email?${params}`);
+  });
+
   app.get("/auth/google", (c) => {
     if (CAS_SERVER_URL && CAS_CLIENT_ID) {
       const params = new URLSearchParams({
