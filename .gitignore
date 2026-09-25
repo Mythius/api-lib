@@ -3,3 +3,4 @@ auth.json
 package-lock.json
 google/*.json
 .env
+/tools/generated
